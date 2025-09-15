@@ -1,0 +1,172 @@
+name: Determinism Verification
+
+on:
+  schedule:
+    # Run nightly at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      test_seeds:
+        description: 'Comma-separated list of seeds to test'
+        required: false
+        default: '42,123,456,789,999'
+      render_duration:
+        description: 'Duration of test renders in seconds'
+        required: false
+        default: '10'
+
+env:
+  PYTHON_VERSION: "3.11"
+  BLENDER_VERSION: "4.0"
+
+jobs:
+  determinism-verification:
+    name: Determinism Verification
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install Blender
+      run: |
+        wget https://mirror.clarkson.edu/blender/release/Blender4.0/blender-4.0.0-linux-x64.tar.xz
+        tar -xf blender-4.0.0-linux-x64.tar.xz
+        sudo mv blender-4.0.0-linux-x64 /opt/blender
+        sudo ln -s /opt/blender/blender /usr/local/bin/blender
+        
+        # Verify Blender installation
+        blender --version
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .
+        pip install -r tests/requirements-test.txt
+
+    - name: Create test seeds configuration
+      run: |
+        echo "TEST_SEEDS=${{ github.event.inputs.test_seeds || '42,123,456,789,999' }}" >> $GITHUB_ENV
+        echo "RENDER_DURATION=${{ github.event.inputs.render_duration || '10' }}" >> $GITHUB_ENV
+
+    - name: Run golden test cases
+      run: |
+        python -m pytest tests/determinism/test_render_determinism.py::TestRenderDeterminism::test_golden_test_cases \
+          -v --tb=short --timeout=1800
+
+    - name: Run determinism test suite
+      run: |
+        python -m pytest tests/determinism/test_render_determinism.py::TestRenderDeterminism::test_determinism_test_suite \
+          -v --tb=short --timeout=1800
+
+    - name: Run reproducibility tests
+      run: |
+        python -m pytest tests/determinism/test_render_determinism.py::TestRenderDeterminism::test_render_reproducibility_across_runs \
+          -v --tb=short --timeout=1800
+
+    - name: Run checksum consistency tests
+      run: |
+        python -m pytest tests/determinism/test_render_determinism.py::TestRenderDeterminism::test_checksum_consistency \
+          -v --tb=short --timeout=1800
+
+    - name: Run seed propagation tests
+      run: |
+        python -m pytest tests/determinism/test_render_determinism.py::TestRenderDeterminism::test_seed_propagation_through_pipeline \
+          -v --tb=short --timeout=1800
+
+    - name: Run complexity tests
+      run: |
+        python -m pytest tests/determinism/test_render_determinism.py::TestRenderDeterminism::test_determinism_with_various_scene_complexities \
+          -v --tb=short --timeout=1800
+
+    - name: Generate determinism report
+      run: |
+        python scripts/generate_determinism_report.py \
+          --seeds="$TEST_SEEDS" \
+          --duration="$RENDER_DURATION" \
+          --output=determinism-report.json
+
+    - name: Upload determinism artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: determinism-artifacts
+        path: |
+          determinism-report.json
+          golden_test_cases/
+          render_outputs/
+          checksums/
+
+    - name: Check determinism failures
+      run: |
+        python scripts/check_determinism_results.py determinism-report.json
+        
+        # Fail the job if determinism checks failed
+        if [ $? -ne 0 ]; then
+          echo "❌ Determinism verification failed!"
+          exit 1
+        else
+          echo "✅ All determinism checks passed!"
+        fi
+
+    - name: Comment on PR (if applicable)
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const fs = require('fs');
+          const reportPath = 'determinism-report.json';
+          
+          if (fs.existsSync(reportPath)) {
+            const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+            
+            const comment = `## 🎯 Determinism Verification Results
+            
+            **Status**: ${report.passed ? '✅ PASSED' : '❌ FAILED'}
+            
+            **Test Summary**:
+            - Total Tests: ${report.total_tests}
+            - Passed: ${report.passed_tests}
+            - Failed: ${report.failed_tests}
+            - Success Rate: ${((report.passed_tests / report.total_tests) * 100).toFixed(2)}%
+            
+            **Performance**:
+            - Average Render Time: ${report.average_render_time.toFixed(2)}s
+            - Total Test Duration: ${report.total_duration.toFixed(2)}s
+            
+            ${report.failures.length > 0 ? `
+            **Failures**:
+            ${report.failures.map(f => `- ${f.test}: ${f.error}`).join('\n')}
+            ` : ''}
+            
+            *Generated on ${new Date().toISOString()}*`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+          }
+
+    - name: Send notification on failure
+      if: failure()
+      uses: 8398a7/action-slack@v3
+      with:
+        status: failure
+        channel: '#legal-sim-alerts'
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        fields: repo,message,commit,author,action,eventName,ref,workflow
+        text: |
+          🚨 Determinism verification failed for Legal-Sim!
+          
+          Repository: ${{ github.repository }}
+          Branch: ${{ github.ref }}
+          Commit: ${{ github.sha }}
+          Author: ${{ github.actor }}
+          
+          Please check the workflow run for details.

@@ -1,0 +1,471 @@
+name: Deploy to Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to deploy (e.g., v1.0.0)'
+        required: true
+        type: string
+      environment:
+        description: 'Production environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+        - production
+        - production-eu
+      deployment_strategy:
+        description: 'Deployment strategy'
+        required: true
+        default: 'blue-green'
+        type: choice
+        options:
+        - blue-green
+        - rolling
+        - canary
+      skip_tests:
+        description: 'Skip tests (emergency deployment)'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  DOCKER_REGISTRY: "ghcr.io"
+  IMAGE_NAME: "legal-sim"
+  KUBE_NAMESPACE: "legal-sim-production"
+  HELM_RELEASE_NAME: "legal-sim"
+
+jobs:
+  # Pre-deployment validation
+  validate:
+    name: Pre-deployment Validation
+    runs-on: ubuntu-latest
+    if: ${{ !inputs.skip_tests }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.version }}
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .
+        pip install -r tests/requirements-test.txt
+
+    - name: Run critical tests
+      run: |
+        pytest tests/compliance/ -v --timeout=300
+        pytest tests/determinism/ -v --timeout=600
+
+    - name: Security scan
+      run: |
+        bandit -r services/ -f txt
+        safety check
+
+    - name: License compliance check
+      run: |
+        pip-licenses --format=json --output-file=licenses.json
+        python scripts/check_license_compliance.py licenses.json
+
+  # Build production images
+  build-production:
+    name: Build Production Images
+    runs-on: ubuntu-latest
+    needs: validate
+    if: always() && (needs.validate.result == 'success' || inputs.skip_tests)
+    
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.version }}
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.DOCKER_REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}
+        tags: |
+          type=raw,value=${{ inputs.version }}
+          type=raw,value=production-latest
+
+    - name: Build and push all services
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: infrastructure/docker/services/api-gateway.Dockerfile
+        push: true
+        tags: |
+          ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/api-gateway:${{ inputs.version }}
+          ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/api-gateway:production-latest
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Build Evidence Processor
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: infrastructure/docker/services/evidence-processor.Dockerfile
+        push: true
+        tags: |
+          ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/evidence-processor:${{ inputs.version }}
+          ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/evidence-processor:production-latest
+        labels: ${{ steps.meta.outputs.labels }}
+
+    - name: Build Storyboard Service
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: infrastructure/docker/services/storyboard-service.Dockerfile
+        push: true
+        tags: |
+          ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/storyboard-service:${{ inputs.version }}
+          ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/storyboard-service:production-latest
+        labels: ${{ steps.meta.outputs.labels }}
+
+    - name: Build Timeline Compiler
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: infrastructure/docker/services/timeline-compiler.Dockerfile
+        push: true
+        tags: |
+          ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/timeline-compiler:${{ inputs.version }}
+          ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/timeline-compiler:production-latest
+        labels: ${{ steps.meta.outputs.labels }}
+
+    - name: Build Render Orchestrator
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: infrastructure/docker/services/render-orchestrator.Dockerfile
+        push: true
+        tags: |
+          ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/render-orchestrator:${{ inputs.version }}
+          ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/render-orchestrator:production-latest
+        labels: ${{ steps.meta.outputs.labels }}
+
+    - name: Security scan production images
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/api-gateway:${{ inputs.version }}
+        format: 'sarif'
+        output: 'trivy-results-api-gateway.sarif'
+
+    - name: Upload security scan results
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: 'trivy-results-api-gateway.sarif'
+
+  # Database migration
+  database-migration:
+    name: Database Migration
+    runs-on: ubuntu-latest
+    needs: build-production
+    environment: production-database
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.version }}
+
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+
+    - name: Configure kubectl
+      run: |
+        echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > kubeconfig
+        export KUBECONFIG=kubeconfig
+
+    - name: Create database backup
+      run: |
+        kubectl create job --from=cronjob/database-backup database-backup-$(date +%Y%m%d%H%M%S) -n ${{ env.KUBE_NAMESPACE }}
+        kubectl wait --for=condition=complete job/database-backup-$(date +%Y%m%d%H%M%S) -n ${{ env.KUBE_NAMESPACE }} --timeout=600s
+
+    - name: Run database migration
+      run: |
+        kubectl create job --from=cronjob/database-migration database-migration-$(date +%Y%m%d%H%M%S) -n ${{ env.KUBE_NAMESPACE }}
+        kubectl wait --for=condition=complete job/database-migration-$(date +%Y%m%d%H%M%S) -n ${{ env.KUBE_NAMESPACE }} --timeout=1800s
+
+    - name: Verify migration success
+      run: |
+        kubectl logs job/database-migration-$(date +%Y%m%d%H%M%S) -n ${{ env.KUBE_NAMESPACE }}
+
+  # Blue-Green Deployment
+  blue-green-deployment:
+    name: Blue-Green Deployment
+    runs-on: ubuntu-latest
+    needs: [build-production, database-migration]
+    if: inputs.deployment_strategy == 'blue-green'
+    environment: production
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.version }}
+
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+
+    - name: Set up Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: 'v3.12.0'
+
+    - name: Configure kubectl
+      run: |
+        echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > kubeconfig
+        export KUBECONFIG=kubeconfig
+
+    - name: Deploy to Green environment
+      run: |
+        cd infrastructure/kubernetes/overlays/production
+        
+        # Update image tags for green deployment
+        kustomize edit set image \
+          legal-sim/api-gateway=${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/api-gateway:${{ inputs.version }} \
+          legal-sim/evidence-processor=${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/evidence-processor:${{ inputs.version }} \
+          legal-sim/storyboard-service=${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/storyboard-service:${{ inputs.version }} \
+          legal-sim/timeline-compiler=${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/timeline-compiler:${{ inputs.version }} \
+          legal-sim/render-orchestrator=${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/render-orchestrator:${{ inputs.version }}
+        
+        # Deploy to green namespace
+        kustomize build . | sed 's/legal-sim-production/legal-sim-green/g' | kubectl apply -f -
+
+    - name: Wait for Green deployment
+      run: |
+        kubectl rollout status deployment/api-gateway -n legal-sim-green --timeout=600s
+        kubectl rollout status deployment/evidence-processor -n legal-sim-green --timeout=600s
+        kubectl rollout status deployment/storyboard-service -n legal-sim-green --timeout=600s
+        kubectl rollout status deployment/timeline-compiler -n legal-sim-green --timeout=600s
+        kubectl rollout status deployment/render-orchestrator -n legal-sim-green --timeout=600s
+
+    - name: Run health checks on Green
+      run: |
+        python scripts/health_check.py \
+          --namespace=legal-sim-green \
+          --timeout=300 \
+          --endpoint="${{ secrets.PRODUCTION_GREEN_URL }}"
+
+    - name: Switch traffic to Green
+      run: |
+        # Update ingress to point to green services
+        kubectl patch ingress legal-sim-ingress -n legal-sim-production -p '{"spec":{"rules":[{"host":"legal-sim.example.com","http":{"paths":[{"path":"/","pathType":"Prefix","backend":{"service":{"name":"api-gateway-green"}}}]}}]}}'
+
+    - name: Verify traffic switch
+      run: |
+        sleep 30  # Wait for traffic to switch
+        python scripts/verify_traffic_switch.py \
+          --endpoint="${{ secrets.PRODUCTION_URL }}" \
+          --expected-version="${{ inputs.version }}"
+
+    - name: Cleanup Blue environment
+      if: success()
+      run: |
+        kubectl delete namespace legal-sim-blue --ignore-not-found=true
+
+  # Rolling Deployment
+  rolling-deployment:
+    name: Rolling Deployment
+    runs-on: ubuntu-latest
+    needs: [build-production, database-migration]
+    if: inputs.deployment_strategy == 'rolling'
+    environment: production
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.version }}
+
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+
+    - name: Configure kubectl
+      run: |
+        echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > kubeconfig
+        export KUBECONFIG=kubeconfig
+
+    - name: Update deployments with rolling strategy
+      run: |
+        cd infrastructure/kubernetes/overlays/production
+        
+        # Update image tags
+        kustomize edit set image \
+          legal-sim/api-gateway=${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/api-gateway:${{ inputs.version }} \
+          legal-sim/evidence-processor=${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/evidence-processor:${{ inputs.version }} \
+          legal-sim/storyboard-service=${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/storyboard-service:${{ inputs.version }} \
+          legal-sim/timeline-compiler=${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/timeline-compiler:${{ inputs.version }} \
+          legal-sim/render-orchestrator=${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/render-orchestrator:${{ inputs.version }}
+        
+        kustomize build . | kubectl apply -f -
+
+    - name: Wait for rolling deployment
+      run: |
+        kubectl rollout status deployment/api-gateway -n ${{ env.KUBE_NAMESPACE }} --timeout=900s
+        kubectl rollout status deployment/evidence-processor -n ${{ env.KUBE_NAMESPACE }} --timeout=900s
+        kubectl rollout status deployment/storyboard-service -n ${{ env.KUBE_NAMESPACE }} --timeout=900s
+        kubectl rollout status deployment/timeline-compiler -n ${{ env.KUBE_NAMESPACE }} --timeout=900s
+        kubectl rollout status deployment/render-orchestrator -n ${{ env.KUBE_NAMESPACE }} --timeout=900s
+
+  # Post-deployment validation
+  post-deployment-validation:
+    name: Post-deployment Validation
+    runs-on: ubuntu-latest
+    needs: [blue-green-deployment, rolling-deployment]
+    if: always() && (needs.blue-green-deployment.result == 'success' || needs.rolling-deployment.result == 'success')
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.version }}
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r tests/requirements-test.txt
+
+    - name: Run production smoke tests
+      run: |
+        python scripts/smoke_tests.py \
+          --base-url="${{ secrets.PRODUCTION_URL }}" \
+          --timeout=300 \
+          --critical-tests-only
+
+    - name: Run health checks
+      run: |
+        python scripts/health_check.py \
+          --namespace=${{ env.KUBE_NAMESPACE }} \
+          --timeout=300 \
+          --endpoint="${{ secrets.PRODUCTION_URL }}"
+
+    - name: Verify all services are healthy
+      run: |
+        kubectl get pods -n ${{ env.KUBE_NAMESPACE }}
+        kubectl get services -n ${{ env.KUBE_NAMESPACE }}
+
+  # Rollback on failure
+  rollback:
+    name: Rollback Deployment
+    runs-on: ubuntu-latest
+    needs: [blue-green-deployment, rolling-deployment, post-deployment-validation]
+    if: failure() && (needs.blue-green-deployment.result == 'failure' || needs.rolling-deployment.result == 'failure' || needs.post-deployment-validation.result == 'failure')
+    environment: production-rollback
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+
+    - name: Configure kubectl
+      run: |
+        echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > kubeconfig
+        export KUBECONFIG=kubeconfig
+
+    - name: Rollback deployments
+      run: |
+        kubectl rollout undo deployment/api-gateway -n ${{ env.KUBE_NAMESPACE }}
+        kubectl rollout undo deployment/evidence-processor -n ${{ env.KUBE_NAMESPACE }}
+        kubectl rollout undo deployment/storyboard-service -n ${{ env.KUBE_NAMESPACE }}
+        kubectl rollout undo deployment/timeline-compiler -n ${{ env.KUBE_NAMESPACE }}
+        kubectl rollout undo deployment/render-orchestrator -n ${{ env.KUBE_NAMESPACE }}
+
+    - name: Wait for rollback completion
+      run: |
+        kubectl rollout status deployment/api-gateway -n ${{ env.KUBE_NAMESPACE }} --timeout=600s
+        kubectl rollout status deployment/evidence-processor -n ${{ env.KUBE_NAMESPACE }} --timeout=600s
+        kubectl rollout status deployment/storyboard-service -n ${{ env.KUBE_NAMESPACE }} --timeout=600s
+        kubectl rollout status deployment/timeline-compiler -n ${{ env.KUBE_NAMESPACE }} --timeout=600s
+        kubectl rollout status deployment/render-orchestrator -n ${{ env.KUBE_NAMESPACE }} --timeout=600s
+
+    - name: Verify rollback success
+      run: |
+        python scripts/health_check.py \
+          --namespace=${{ env.KUBE_NAMESPACE }} \
+          --timeout=300 \
+          --endpoint="${{ secrets.PRODUCTION_URL }}"
+
+    - name: Send rollback notification
+      uses: 8398a7/action-slack@v3
+      with:
+        status: warning
+        channel: '#legal-sim-alerts'
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        text: |
+          ⚠️ Production deployment rolled back!
+          
+          Version: ${{ inputs.version }}
+          Environment: ${{ inputs.environment }}
+          Reason: Deployment validation failed
+          
+          Repository: ${{ github.repository }}
+          Branch: ${{ github.ref }}
+          Commit: ${{ github.sha }}
+
+  # Send deployment notification
+  notify:
+    name: Send Deployment Notification
+    runs-on: ubuntu-latest
+    needs: [blue-green-deployment, rolling-deployment, post-deployment-validation, rollback]
+    if: always()
+    
+    steps:
+    - name: Send deployment notification
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        channel: '#legal-sim-deployments'
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        fields: repo,message,commit,author,action,eventName,ref,workflow
+        text: |
+          🚀 Production deployment ${{ job.status }}!
+          
+          Version: ${{ inputs.version }}
+          Environment: ${{ inputs.environment }}
+          Strategy: ${{ inputs.deployment_strategy }}
+          
+          Repository: ${{ github.repository }}
+          Branch: ${{ github.ref }}
+          Commit: ${{ github.sha }}
+          
+          View deployment: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

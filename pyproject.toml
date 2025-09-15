@@ -1,0 +1,170 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "legal-sim"
+version = "0.1.0"
+description = "Legal Simulation Platform for Court-Admissible Visualizations"
+authors = [
+    {name = "Legal Sim Team", email = "team@legal-sim.com"}
+]
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Legal Industry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+
+dependencies = [
+    # Core framework
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    
+    # Database
+    "sqlalchemy>=2.0.0",
+    "alembic>=1.13.0",
+    "asyncpg>=0.29.0",
+    "redis>=5.0.0",
+    
+    # ML/AI (commented out for MVP - install separately if needed)
+    # "torch>=2.1.0",
+    # "transformers>=4.36.0",
+    # "whisperx>=3.1.0",
+    # "paddleocr>=2.7.0",
+    # "tesseract>=0.1.3",
+    
+    # Media processing
+    "opencv-python>=4.8.0",
+    "pillow>=10.1.0",
+    "pymupdf>=1.23.0",
+    "pydub>=0.25.0",
+    
+    # 3D/Graphics (enabled for basic functionality)
+    "opentimelineio>=0.15.0",
+    # "usd-core>=23.08",
+    
+    # Storage
+    "minio>=7.2.0",
+    "boto3>=1.34.0",
+    
+    # Security
+    "python-jose[cryptography]>=3.3.0",
+    "cryptography>=41.0.0",
+    "PyJWT>=2.8.0",
+    
+    # Monitoring
+    "opentelemetry-api>=1.21.0",
+    "opentelemetry-sdk>=1.21.0",
+    "opentelemetry-instrumentation-fastapi>=0.42b0",
+    "opentelemetry-exporter-otlp>=1.21.0",
+    "opentelemetry-instrumentation-requests>=0.42b0",
+    "opentelemetry-instrumentation-sqlalchemy>=0.42b0",
+    "opentelemetry-instrumentation-redis>=0.42b0",
+    
+    # Workflow (enabled for basic functionality)
+    "temporalio>=1.4.0",
+    
+    # Policy
+    "requests>=2.31.0",
+    
+    # Utilities
+    "httpx>=0.25.0",
+    "python-multipart>=0.0.6",
+    "jinja2>=3.1.0",
+    "pyyaml>=6.0.0",
+    "aiofiles>=23.2.0",
+    "tenacity>=8.2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.11.0",
+    "isort>=5.12.0",
+    "flake8>=6.1.0",
+    "mypy>=1.7.0",
+    "pre-commit>=3.6.0",
+]
+
+gpu = [
+    "torch[cuda]>=2.1.0",
+    "torchvision[cuda]>=0.16.0",
+]
+
+enterprise = [
+    "aws-sdk>=1.34.0",
+    "google-cloud-storage>=2.10.0",
+    "cerbos>=0.1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/legal-sim/platform"
+Documentation = "https://docs.legal-sim.com"
+Repository = "https://github.com/legal-sim/platform"
+Issues = "https://github.com/legal-sim/platform/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["services*", "agents*", "tools*"]
+
+[tool.black]
+line-length = 88
+target-version = ['py39']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
+known_first_party = ["services", "agents", "tools"]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short --strict-markers"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "determinism: marks tests as determinism tests",
+]

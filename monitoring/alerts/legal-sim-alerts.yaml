@@ -1,0 +1,253 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: legal-sim-alerts
+  namespace: legal-sim
+  labels:
+    app: legal-sim
+    component: monitoring
+spec:
+  groups:
+  - name: legal-sim-system-alerts
+    rules:
+    # Service Availability Alerts
+    - alert: ServiceDown
+      expr: up{job=~"legal-sim-.*"} == 0
+      for: 1m
+      labels:
+        severity: critical
+        service: "{{ $labels.job }}"
+        instance: "{{ $labels.instance }}"
+      annotations:
+        summary: "Legal-Sim service {{ $labels.job }} is down"
+        description: "Service {{ $labels.job }} on instance {{ $labels.instance }} has been down for more than 1 minute"
+        runbook_url: "https://wiki.company.com/legal-sim/runbooks/service-down"
+    
+    - alert: HighErrorRate
+      expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.1
+      for: 2m
+      labels:
+        severity: warning
+        service: "{{ $labels.job }}"
+      annotations:
+        summary: "High error rate detected for {{ $labels.job }}"
+        description: "Error rate for {{ $labels.job }} is {{ $value }} requests/second"
+        runbook_url: "https://wiki.company.com/legal-sim/runbooks/high-error-rate"
+    
+    - alert: HighResponseTime
+      expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 5
+      for: 5m
+      labels:
+        severity: warning
+        service: "{{ $labels.job }}"
+      annotations:
+        summary: "High response time for {{ $labels.job }}"
+        description: "95th percentile response time for {{ $labels.job }} is {{ $value }} seconds"
+        runbook_url: "https://wiki.company.com/legal-sim/runbooks/high-response-time"
+    
+    # Resource Usage Alerts
+    - alert: HighCPUUsage
+      expr: rate(process_cpu_seconds_total[5m]) * 100 > 80
+      for: 10m
+      labels:
+        severity: warning
+        service: "{{ $labels.job }}"
+      annotations:
+        summary: "High CPU usage for {{ $labels.job }}"
+        description: "CPU usage for {{ $labels.job }} is {{ $value }}%"
+        runbook_url: "https://wiki.company.com/legal-sim/runbooks/high-cpu-usage"
+    
+    - alert: HighMemoryUsage
+      expr: process_resident_memory_bytes / 1024 / 1024 / 1024 > 2
+      for: 10m
+      labels:
+        severity: warning
+        service: "{{ $labels.job }}"
+      annotations:
+        summary: "High memory usage for {{ $labels.job }}"
+        description: "Memory usage for {{ $labels.job }} is {{ $value }} GB"
+        runbook_url: "https://wiki.company.com/legal-sim/runbooks/high-memory-usage"
+    
+    - alert: DiskSpaceLow
+      expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 10
+      for: 5m
+      labels:
+        severity: critical
+        instance: "{{ $labels.instance }}"
+      annotations:
+        summary: "Low disk space on {{ $labels.instance }}"
+        description: "Disk space on {{ $labels.instance }} is {{ $value }}% available"
+        runbook_url: "https://wiki.company.com/legal-sim/runbooks/disk-space-low"
+    
+    # Business Logic Alerts
+    - alert: DeterminismFailure
+      expr: legal_sim_determinism_failures_total > 0
+      for: 0m
+      labels:
+        severity: critical
+        component: "render-orchestrator"
+      annotations:
+        summary: "Render determinism failure detected"
+        description: "Render determinism check failed - this is a critical issue for legal compliance"
+        runbook_url: "https://wiki.company.com/legal-sim/runbooks/determinism-failure"
+    
+    - alert: EvidenceProcessingBacklog
+      expr: legal_sim_evidence_queue_size > 100
+      for: 5m
+      labels:
+        severity: warning
+        component: "evidence-processor"
+      annotations:
+        summary: "Evidence processing backlog is high"
+        description: "Evidence processing queue has {{ $value }} items pending"
+        runbook_url: "https://wiki.company.com/legal-sim/runbooks/evidence-backlog"
+    
+    - alert: RenderQueueBacklog
+      expr: legal_sim_render_queue_size > 50
+      for: 10m
+      labels:
+        severity: warning
+        component: "render-orchestrator"
+      annotations:
+        summary: "Render queue backlog is high"
+        description: "Render queue has {{ $value }} jobs pending"
+        runbook_url: "https://wiki.company.com/legal-sim/runbooks/render-backlog"
+    
+    - alert: DatabaseConnectionPoolExhausted
+      expr: legal_sim_database_connections_active / legal_sim_database_connections_max > 0.9
+      for: 2m
+      labels:
+        severity: critical
+        component: "database"
+      annotations:
+        summary: "Database connection pool nearly exhausted"
+        description: "Database connection pool is {{ $value }}% utilized"
+        runbook_url: "https://wiki.company.com/legal-sim/runbooks/database-connections"
+    
+    # Security Alerts
+    - alert: SuspiciousActivity
+      expr: legal_sim_suspicious_activities_total > 0
+      for: 0m
+      labels:
+        severity: high
+        component: "security"
+      annotations:
+        summary: "Suspicious activity detected"
+        description: "Security system detected suspicious activity - investigation required"
+        runbook_url: "https://wiki.company.com/legal-sim/runbooks/suspicious-activity"
+    
+    - alert: FailedLoginAttempts
+      expr: rate(legal_sim_failed_logins_total[5m]) > 10
+      for: 2m
+      labels:
+        severity: warning
+        component: "authentication"
+      annotations:
+        summary: "High rate of failed login attempts"
+        description: "Failed login rate is {{ $value }} attempts/second"
+        runbook_url: "https://wiki.company.com/legal-sim/runbooks/failed-logins"
+    
+    - alert: UnauthorizedAccessAttempts
+      expr: rate(legal_sim_unauthorized_access_total[5m]) > 5
+      for: 1m
+      labels:
+        severity: high
+        component: "authorization"
+      annotations:
+        summary: "Unauthorized access attempts detected"
+        description: "Unauthorized access rate is {{ $value }} attempts/second"
+        runbook_url: "https://wiki.company.com/legal-sim/runbooks/unauthorized-access"
+    
+    # Compliance Alerts
+    - alert: AuditLogTampering
+      expr: legal_sim_audit_integrity_violations_total > 0
+      for: 0m
+      labels:
+        severity: critical
+        component: "audit"
+      annotations:
+        summary: "Audit log tampering detected"
+        description: "Audit log integrity violation detected - immediate investigation required"
+        runbook_url: "https://wiki.company.com/legal-sim/runbooks/audit-tampering"
+    
+    - alert: LegalHoldViolation
+      expr: legal_sim_legal_hold_violations_total > 0
+      for: 0m
+      labels:
+        severity: critical
+        component: "compliance"
+      annotations:
+        summary: "Legal hold violation detected"
+        description: "Attempted access to data under legal hold - compliance issue"
+        runbook_url: "https://wiki.company.com/legal-sim/runbooks/legal-hold-violation"
+    
+    - alert: DataRetentionPolicyViolation
+      expr: legal_sim_data_retention_violations_total > 0
+      for: 0m
+      labels:
+        severity: high
+        component: "compliance"
+      annotations:
+        summary: "Data retention policy violation"
+        description: "Data retention policy violation detected"
+        runbook_url: "https://wiki.company.com/legal-sim/runbooks/data-retention-violation"
+    
+    # Performance Alerts
+    - alert: SlowEvidenceProcessing
+      expr: histogram_quantile(0.95, rate(legal_sim_evidence_processing_duration_seconds_bucket[10m])) > 300
+      for: 5m
+      labels:
+        severity: warning
+        component: "evidence-processor"
+      annotations:
+        summary: "Evidence processing is slow"
+        description: "95th percentile evidence processing time is {{ $value }} seconds"
+        runbook_url: "https://wiki.company.com/legal-sim/runbooks/slow-evidence-processing"
+    
+    - alert: SlowRenderTime
+      expr: histogram_quantile(0.95, rate(legal_sim_render_duration_seconds_bucket[10m])) > 3600
+      for: 10m
+      labels:
+        severity: warning
+        component: "render-orchestrator"
+      annotations:
+        summary: "Render times are slow"
+        description: "95th percentile render time is {{ $value }} seconds"
+        runbook_url: "https://wiki.company.com/legal-sim/runbooks/slow-render-time"
+    
+    # Infrastructure Alerts
+    - alert: KubernetesPodCrashLooping
+      expr: rate(kube_pod_container_status_restarts_total[15m]) > 0
+      for: 5m
+      labels:
+        severity: warning
+        component: "kubernetes"
+        pod: "{{ $labels.pod }}"
+      annotations:
+        summary: "Pod {{ $labels.pod }} is crash looping"
+        description: "Pod {{ $labels.pod }} has restarted {{ $value }} times in the last 15 minutes"
+        runbook_url: "https://wiki.company.com/legal-sim/runbooks/pod-crash-loop"
+    
+    - alert: KubernetesPodNotReady
+      expr: kube_pod_status_phase{phase!="Running", phase!="Succeeded"} == 1
+      for: 10m
+      labels:
+        severity: warning
+        component: "kubernetes"
+        pod: "{{ $labels.pod }}"
+      annotations:
+        summary: "Pod {{ $labels.pod }} is not ready"
+        description: "Pod {{ $labels.pod }} is in {{ $labels.phase }} state"
+        runbook_url: "https://wiki.company.com/legal-sim/runbooks/pod-not-ready"
+    
+    - alert: KubernetesNodeNotReady
+      expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+      for: 5m
+      labels:
+        severity: critical
+        component: "kubernetes"
+        node: "{{ $labels.node }}"
+      annotations:
+        summary: "Kubernetes node {{ $labels.node }} is not ready"
+        description: "Kubernetes node {{ $labels.node }} is not ready"
+        runbook_url: "https://wiki.company.com/legal-sim/runbooks/node-not-ready"

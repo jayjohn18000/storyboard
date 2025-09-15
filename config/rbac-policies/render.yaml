@@ -1,0 +1,19 @@
+apiVersion: api.cerbos.dev/v1
+resourcePolicy:
+  version: "default"
+  resource: "render"
+  rules:
+    - actions: ["create"]
+      effect: EFFECT_ALLOW
+      roles: ["admin", "attorney", "paralegal"]
+    
+    - actions: ["read", "list", "download"]
+      effect: EFFECT_ALLOW
+      roles: ["admin", "attorney", "paralegal", "viewer"]
+    
+    - actions: ["update", "delete", "cancel"]
+      effect: EFFECT_ALLOW
+      roles: ["admin", "attorney"]
+      condition:
+        match:
+          expr: request.resource.attr.created_by == request.principal.id

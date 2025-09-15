@@ -1,0 +1,19 @@
+apiVersion: api.cerbos.dev/v1
+resourcePolicy:
+  version: "default"
+  resource: "evidence"
+  rules:
+    - actions: ["create", "upload"]
+      effect: EFFECT_ALLOW
+      roles: ["admin", "attorney", "paralegal"]
+    
+    - actions: ["read", "download", "list"]
+      effect: EFFECT_ALLOW
+      roles: ["admin", "attorney", "paralegal", "viewer"]
+    
+    - actions: ["update", "delete", "lock"]
+      effect: EFFECT_ALLOW
+      roles: ["admin", "attorney"]
+      condition:
+        match:
+          expr: request.resource.attr.uploaded_by == request.principal.id

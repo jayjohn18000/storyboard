@@ -1,0 +1,318 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches: [ develop ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Staging environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - staging-2
+
+env:
+  DOCKER_REGISTRY: "ghcr.io"
+  IMAGE_NAME: "legal-sim"
+  KUBE_NAMESPACE: "legal-sim-staging"
+  HELM_RELEASE_NAME: "legal-sim"
+
+jobs:
+  # Build and push images
+  build-and-push:
+    name: Build & Push Images
+    runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.DOCKER_REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}
+        tags: |
+          type=ref,event=branch
+          type=sha,prefix=staging-
+          type=raw,value=staging-latest,enable={{is_default_branch}}
+
+    - name: Build and push API Gateway
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: infrastructure/docker/services/api-gateway.Dockerfile
+        push: true
+        tags: ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/api-gateway:${{ steps.meta.outputs.version }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Build and push Evidence Processor
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: infrastructure/docker/services/evidence-processor.Dockerfile
+        push: true
+        tags: ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/evidence-processor:${{ steps.meta.outputs.version }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Build and push Storyboard Service
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: infrastructure/docker/services/storyboard-service.Dockerfile
+        push: true
+        tags: ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/storyboard-service:${{ steps.meta.outputs.version }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Build and push Timeline Compiler
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: infrastructure/docker/services/timeline-compiler.Dockerfile
+        push: true
+        tags: ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/timeline-compiler:${{ steps.meta.outputs.version }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Build and push Render Orchestrator
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: infrastructure/docker/services/render-orchestrator.Dockerfile
+        push: true
+        tags: ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/render-orchestrator:${{ steps.meta.outputs.version }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  # Deploy to staging
+  deploy:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    environment: staging
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+
+    - name: Set up Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: 'v3.12.0'
+
+    - name: Configure kubectl
+      run: |
+        echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > kubeconfig
+        export KUBECONFIG=kubeconfig
+
+    - name: Create namespace
+      run: |
+        kubectl create namespace ${{ env.KUBE_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+
+    - name: Deploy with Kustomize
+      run: |
+        cd infrastructure/kubernetes/overlays/staging
+        kustomize edit set image \
+          legal-sim/api-gateway=${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/api-gateway:${{ needs.build-and-push.outputs.image-tag }} \
+          legal-sim/evidence-processor=${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/evidence-processor:${{ needs.build-and-push.outputs.image-tag }} \
+          legal-sim/storyboard-service=${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/storyboard-service:${{ needs.build-and-push.outputs.image-tag }} \
+          legal-sim/timeline-compiler=${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/timeline-compiler:${{ needs.build-and-push.outputs.image-tag }} \
+          legal-sim/render-orchestrator=${{ env.DOCKER_REGISTRY }}/${{ github.repository }}/render-orchestrator:${{ needs.build-and-push.outputs.image-tag }}
+        
+        kustomize build . | kubectl apply -f -
+
+    - name: Wait for deployment rollout
+      run: |
+        kubectl rollout status deployment/api-gateway -n ${{ env.KUBE_NAMESPACE }} --timeout=300s
+        kubectl rollout status deployment/evidence-processor -n ${{ env.KUBE_NAMESPACE }} --timeout=300s
+        kubectl rollout status deployment/storyboard-service -n ${{ env.KUBE_NAMESPACE }} --timeout=300s
+        kubectl rollout status deployment/timeline-compiler -n ${{ env.KUBE_NAMESPACE }} --timeout=300s
+        kubectl rollout status deployment/render-orchestrator -n ${{ env.KUBE_NAMESPACE }} --timeout=300s
+
+    - name: Verify deployment
+      run: |
+        kubectl get pods -n ${{ env.KUBE_NAMESPACE }}
+        kubectl get services -n ${{ env.KUBE_NAMESPACE }}
+
+  # Run smoke tests
+  smoke-tests:
+    name: Smoke Tests
+    runs-on: ubuntu-latest
+    needs: deploy
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install test dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r tests/requirements-test.txt
+
+    - name: Wait for services to be ready
+      run: |
+        sleep 60  # Wait for services to fully start
+
+    - name: Run smoke tests
+      run: |
+        python scripts/smoke_tests.py \
+          --base-url="${{ secrets.STAGING_BASE_URL }}" \
+          --timeout=300
+
+    - name: Upload smoke test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: smoke-test-results
+        path: smoke-test-report.html
+
+  # Run performance tests
+  performance-tests:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    needs: deploy
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install test dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r tests/requirements-test.txt
+
+    - name: Run performance tests
+      run: |
+        pytest tests/performance/ -v \
+          --benchmark-only \
+          --benchmark-save=staging-performance \
+          --base-url="${{ secrets.STAGING_BASE_URL }}"
+
+    - name: Upload performance results
+      uses: actions/upload-artifact@v3
+      with:
+        name: staging-performance-results
+        path: .benchmarks/
+
+  # Run E2E tests
+  e2e-tests:
+    name: End-to-End Tests
+    runs-on: ubuntu-latest
+    needs: deploy
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install test dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r tests/requirements-test.txt
+
+    - name: Run E2E tests
+      run: |
+        pytest tests/e2e/ -v \
+          --timeout=1800 \
+          --base-url="${{ secrets.STAGING_BASE_URL }}"
+
+    - name: Upload E2E test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: staging-e2e-results
+        path: |
+          e2e-test-report.html
+          test-screenshots/
+
+  # Generate deployment report
+  deployment-report:
+    name: Generate Deployment Report
+    runs-on: ubuntu-latest
+    needs: [smoke-tests, performance-tests, e2e-tests]
+    if: always()
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v3
+
+    - name: Generate deployment report
+      run: |
+        python scripts/generate_deployment_report.py \
+          --environment=staging \
+          --version=${{ needs.build-and-push.outputs.image-tag }} \
+          --smoke-tests=smoke-test-results \
+          --performance-tests=staging-performance-results \
+          --e2e-tests=staging-e2e-results
+
+    - name: Upload deployment report
+      uses: actions/upload-artifact@v3
+      with:
+        name: staging-deployment-report
+        path: |
+          deployment-report.html
+          deployment-report.json
+
+    - name: Notify deployment status
+      uses: 8398a7/action-slack@v3
+      if: always()
+      with:
+        status: ${{ job.status }}
+        channel: '#legal-sim-deployments'
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        fields: repo,message,commit,author,action,eventName,ref,workflow
+        text: |
+          🚀 Staging deployment ${{ job.status }}!
+          
+          Environment: Staging
+          Version: ${{ needs.build-and-push.outputs.image-tag }}
+          Repository: ${{ github.repository }}
+          Branch: ${{ github.ref }}
+          Commit: ${{ github.sha }}
+          
+          View deployment report: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

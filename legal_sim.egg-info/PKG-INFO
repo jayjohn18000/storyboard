@@ -1,0 +1,132 @@
+Metadata-Version: 2.4
+Name: legal-sim
+Version: 0.1.0
+Summary: Legal Simulation Platform for Court-Admissible Visualizations
+Author-email: Legal Sim Team <team@legal-sim.com>
+License: MIT
+Project-URL: Homepage, https://github.com/legal-sim/platform
+Project-URL: Documentation, https://docs.legal-sim.com
+Project-URL: Repository, https://github.com/legal-sim/platform
+Project-URL: Issues, https://github.com/legal-sim/platform/issues
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Legal Industry
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+Requires-Dist: fastapi>=0.104.0
+Requires-Dist: uvicorn[standard]>=0.24.0
+Requires-Dist: pydantic>=2.5.0
+Requires-Dist: pydantic-settings>=2.1.0
+Requires-Dist: sqlalchemy>=2.0.0
+Requires-Dist: alembic>=1.13.0
+Requires-Dist: asyncpg>=0.29.0
+Requires-Dist: redis>=5.0.0
+Requires-Dist: opencv-python>=4.8.0
+Requires-Dist: pillow>=10.1.0
+Requires-Dist: pymupdf>=1.23.0
+Requires-Dist: pydub>=0.25.0
+Requires-Dist: opentimelineio>=0.15.0
+Requires-Dist: minio>=7.2.0
+Requires-Dist: boto3>=1.34.0
+Requires-Dist: python-jose[cryptography]>=3.3.0
+Requires-Dist: cryptography>=41.0.0
+Requires-Dist: PyJWT>=2.8.0
+Requires-Dist: opentelemetry-api>=1.21.0
+Requires-Dist: opentelemetry-sdk>=1.21.0
+Requires-Dist: opentelemetry-instrumentation-fastapi>=0.42b0
+Requires-Dist: opentelemetry-exporter-otlp>=1.21.0
+Requires-Dist: opentelemetry-instrumentation-requests>=0.42b0
+Requires-Dist: opentelemetry-instrumentation-sqlalchemy>=0.42b0
+Requires-Dist: opentelemetry-instrumentation-redis>=0.42b0
+Requires-Dist: temporalio>=1.4.0
+Requires-Dist: requests>=2.31.0
+Requires-Dist: httpx>=0.25.0
+Requires-Dist: python-multipart>=0.0.6
+Requires-Dist: jinja2>=3.1.0
+Requires-Dist: pyyaml>=6.0.0
+Requires-Dist: aiofiles>=23.2.0
+Requires-Dist: tenacity>=8.2.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.4.0; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.21.0; extra == "dev"
+Requires-Dist: pytest-cov>=4.1.0; extra == "dev"
+Requires-Dist: black>=23.11.0; extra == "dev"
+Requires-Dist: isort>=5.12.0; extra == "dev"
+Requires-Dist: flake8>=6.1.0; extra == "dev"
+Requires-Dist: mypy>=1.7.0; extra == "dev"
+Requires-Dist: pre-commit>=3.6.0; extra == "dev"
+Provides-Extra: gpu
+Requires-Dist: torch[cuda]>=2.1.0; extra == "gpu"
+Requires-Dist: torchvision[cuda]>=0.16.0; extra == "gpu"
+Provides-Extra: enterprise
+Requires-Dist: aws-sdk>=1.34.0; extra == "enterprise"
+Requires-Dist: google-cloud-storage>=2.10.0; extra == "enterprise"
+Requires-Dist: cerbos>=0.1.0; extra == "enterprise"
+
+# Legal Simulation Platform
+
+A comprehensive platform for creating deterministic, court-admissible legal visualizations and storyboards.
+
+## Architecture Overview
+
+This platform consists of several key components:
+
+- **Microservices Architecture**: Core services for evidence processing, storyboard creation, timeline compilation, and rendering
+- **Dual Mode Operation**: Sandbox mode for experimentation and Demonstrative mode for court-admissible content
+- **Deterministic Rendering**: Ensures reproducible outputs for legal proceedings
+- **Evidence Chain of Custody**: Complete provenance tracking and WORM storage
+- **Policy-Driven Validation**: OPA-based rules for admissibility and compliance
+
+## Quick Start (MVP)
+
+```bash
+# Clone and setup
+git clone <repository>
+cd legal-sim
+
+# Run MVP setup
+make setup-mvp
+
+# Start services
+docker-compose up -d
+
+# Access dashboard
+open http://localhost:3000
+```
+
+## Development
+
+```bash
+# Install dependencies
+make install-deps
+
+# Run tests
+make test
+
+# Start development environment
+make dev
+```
+
+## Key Features
+
+- **Evidence Processing**: OCR, ASR, NLP with multiple implementation options
+- **Storyboard Creation**: Visual timeline editor with evidence anchoring
+- **3D Scene Generation**: OpenUSD-based scene graphs
+- **Render Pipeline**: Blender integration with deterministic outputs
+- **Compliance**: Built-in admissibility validation and audit trails
+
+## Legal Compliance
+
+This platform is designed with legal admissibility in mind:
+- Deterministic rendering ensures reproducibility
+- Complete audit trails for evidence handling
+- Policy-driven validation for jurisdiction-specific rules
+- WORM storage for evidence preservation
+
+## License
+
+See LICENSE file for details.

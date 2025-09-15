@@ -1,0 +1,187 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cleanup-job
+  namespace: legal-sim
+  labels:
+    app: cleanup-job
+    component: maintenance
+spec:
+  schedule: "0 2 * * *"  # Run daily at 2 AM
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: cleanup-job
+            component: maintenance
+        spec:
+          serviceAccountName: cleanup-job
+          restartPolicy: OnFailure
+          containers:
+          - name: cleanup
+            image: legal-sim/cleanup-job:latest
+            imagePullPolicy: Always
+            env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: database-secrets
+                  key: url
+            - name: STORAGE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: storage-secrets
+                  key: url
+            - name: STORAGE_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: storage-secrets
+                  key: access-key
+            - name: STORAGE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: storage-secrets
+                  key: secret-key
+            - name: RETENTION_DAYS
+              value: "90"
+            - name: TEMP_FILE_RETENTION_HOURS
+              value: "24"
+            - name: LOG_RETENTION_DAYS
+              value: "30"
+            resources:
+              requests:
+                memory: "128Mi"
+                cpu: "100m"
+              limits:
+                memory: "256Mi"
+                cpu: "200m"
+            volumeMounts:
+            - name: config
+              mountPath: /app/config
+              readOnly: true
+          volumes:
+          - name: config
+            configMap:
+              name: cleanup-config
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: render-worker-job
+  namespace: legal-sim
+  labels:
+    app: render-worker-job
+    component: render
+spec:
+  schedule: "*/5 * * * *"  # Run every 5 minutes
+  concurrencyPolicy: Allow
+  successfulJobsHistoryLimit: 5
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: render-worker-job
+            component: render
+        spec:
+          serviceAccountName: render-worker
+          restartPolicy: OnFailure
+          containers:
+          - name: render-worker
+            image: legal-sim/render-worker:latest
+            imagePullPolicy: Always
+            env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: database-secrets
+                  key: url
+            - name: STORAGE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: storage-secrets
+                  key: url
+            - name: BLENDER_PATH
+              value: "/usr/bin/blender"
+            - name: MAX_RENDER_DURATION_MINUTES
+              value: "60"
+            resources:
+              requests:
+                memory: "2Gi"
+                cpu: "1000m"
+                nvidia.com/gpu: 1
+              limits:
+                memory: "4Gi"
+                cpu: "2000m"
+                nvidia.com/gpu: 1
+            volumeMounts:
+            - name: render-storage
+              mountPath: /renders
+            - name: shared-storage
+              mountPath: /shared
+          volumes:
+          - name: render-storage
+            persistentVolumeClaim:
+              claimName: render-storage-pvc
+          - name: shared-storage
+            persistentVolumeClaim:
+              claimName: shared-storage-pvc
+          nodeSelector:
+            kubernetes.io/os: linux
+            accelerator: nvidia-tesla-t4
+          tolerations:
+          - key: "nvidia.com/gpu"
+            operator: "Exists"
+            effect: "NoSchedule"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: database-migration-job
+  namespace: legal-sim
+  labels:
+    app: database-migration
+    component: database
+spec:
+  template:
+    metadata:
+      labels:
+        app: database-migration
+        component: database
+    spec:
+      serviceAccountName: database-migration
+      restartPolicy: OnFailure
+      containers:
+      - name: migration
+        image: legal-sim/database-migration:latest
+        imagePullPolicy: Always
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: database-secrets
+              key: url
+        - name: MIGRATION_MODE
+          value: "upgrade"
+        - name: BACKUP_ENABLED
+          value: "true"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        volumeMounts:
+        - name: migration-scripts
+          mountPath: /app/migrations
+          readOnly: true
+      volumes:
+      - name: migration-scripts
+        configMap:
+          name: database-migrations

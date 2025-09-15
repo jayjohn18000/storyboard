@@ -1,0 +1,184 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: render-orchestrator
+  namespace: legal-sim
+  labels:
+    app: render-orchestrator
+    component: renderer
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: render-orchestrator
+  template:
+    metadata:
+      labels:
+        app: render-orchestrator
+        component: renderer
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8004"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: render-orchestrator
+      securityContext:
+        runAsNonRoot: false  # Blender requires root for GPU access
+        runAsUser: 0
+        fsGroup: 0
+      containers:
+      - name: render-orchestrator
+        image: legal-sim/render-orchestrator:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8004
+          name: http
+          protocol: TCP
+        env:
+        - name: API_HOST
+          value: "0.0.0.0"
+        - name: API_PORT
+          value: "8004"
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: OTEL_SERVICE_NAME
+          value: "render-orchestrator"
+        - name: OTEL_SERVICE_VERSION
+          value: "v1.0.0"
+        - name: BLENDER_PATH
+          value: "/usr/bin/blender"
+        - name: BLENDER_VERSION
+          value: "4.0"
+        - name: RENDER_TEMP_DIR
+          value: "/tmp/blender-renders"
+        - name: BLENDER_MEMORY_LIMIT
+          value: "8192"
+        - name: RENDER_TIMEOUT
+          value: "3600"
+        - name: DETERMINISM_ENABLED
+          value: "true"
+        - name: DETERMINISM_SEED
+          value: "42"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: database-secrets
+              key: url
+        - name: STORAGE_URL
+          valueFrom:
+            secretKeyRef:
+              name: storage-secrets
+              key: url
+        resources:
+          requests:
+            memory: "4Gi"
+            cpu: "2000m"
+            nvidia.com/gpu: 1
+          limits:
+            memory: "8Gi"
+            cpu: "4000m"
+            nvidia.com/gpu: 1
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8004
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8004
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: render-storage
+          mountPath: /renders
+        - name: shared-storage
+          mountPath: /shared
+        - name: config
+          mountPath: /app/config
+          readOnly: true
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: render-storage
+        persistentVolumeClaim:
+          claimName: render-storage-pvc
+      - name: shared-storage
+        persistentVolumeClaim:
+          claimName: shared-storage-pvc
+      - name: config
+        configMap:
+          name: render-orchestrator-config
+      nodeSelector:
+        kubernetes.io/os: linux
+        accelerator: nvidia-tesla-t4  # GPU node selector
+      tolerations:
+      - key: "legal-sim/workload"
+        operator: "Equal"
+        value: "gpu"
+        effect: "NoSchedule"
+      - key: "nvidia.com/gpu"
+        operator: "Exists"
+        effect: "NoSchedule"
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - render-orchestrator
+            topologyKey: kubernetes.io/hostname
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: render-orchestrator
+  namespace: legal-sim
+  labels:
+    app: render-orchestrator
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 8004
+    protocol: TCP
+    name: http
+  selector:
+    app: render-orchestrator
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: render-orchestrator
+  namespace: legal-sim
+  labels:
+    app: render-orchestrator
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: render-orchestrator-config
+  namespace: legal-sim
+  labels:
+    app: render-orchestrator
+data:
+  render_engine: "blender"
+  default_profile: "neutral"
+  max_concurrent_renders: "2"
+  render_timeout_minutes: "60"
+  deterministic_rendering: "true"
+  gpu_acceleration: "true"
+  supported_output_formats: "mp4,avi,mov"
+  default_resolution: "1920x1080"
+  default_fps: "30"

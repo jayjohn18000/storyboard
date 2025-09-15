@@ -1,0 +1,229 @@
+services:
+  # Core Infrastructure
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: legal_sim
+      POSTGRES_USER: legal_sim
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schemas:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U legal_sim"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # Policy and Auth Services
+  opa:
+    image: openpolicyagent/opa:latest
+    command: run --server --addr=0.0.0.0:8181 /policies
+    ports:
+      - "8181:8181"
+    volumes:
+      - ./config/policy-packs:/policies
+
+  cerbos:
+    image: ghcr.io/cerbos/cerbos:latest
+    command: server --set=storage.driver=disk --set=storage.disk.directory=/policies --set=server.httpListenAddr=:3592
+    ports:
+      - "3593:3593"
+      - "3592:3592"
+    volumes:
+      - ./config/rbac-policies:/policies
+
+  temporal:
+    image: temporalio/auto-setup:1.22.0
+    environment:
+      - DB=postgresql
+      - DB_PORT=5432
+      - POSTGRES_USER=legal_sim
+      - POSTGRES_PWD=password
+      - POSTGRES_SEEDS=postgres
+      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
+    ports:
+      - "7233:7233"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Core Services
+  api-gateway:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/services/api-gateway.Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://legal_sim:password@postgres:5432/legal_sim
+      - REDIS_URL=redis://redis:6379/0
+      - OPA_ENDPOINT=http://opa:8181
+      - CERBOS_ENDPOINT=http://cerbos:3593
+    depends_on:
+      - postgres
+      - redis
+      - opa
+      - cerbos
+    volumes:
+      - ./services:/app/services
+      - ./config:/app/config
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  evidence-processor:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/services/evidence-processor.Dockerfile
+    environment:
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_BUCKET=legal-sim-evidence
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      minio:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./services:/app/services
+      - ./config:/app/config
+      - evidence_cache:/app/cache
+
+  storyboard-service:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/services/storyboard-service.Dockerfile
+    environment:
+      - DATABASE_URL=postgresql://legal_sim:password@postgres:5432/legal_sim
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./services:/app/services
+      - ./config:/app/config
+
+  timeline-compiler:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/services/timeline-compiler.Dockerfile
+    environment:
+      - DATABASE_URL=postgresql://legal_sim:password@postgres:5432/legal_sim
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./services:/app/services
+      - ./config:/app/config
+      - timeline_cache:/app/cache
+
+  # render-orchestrator: (commented out until service is created)
+  #   build:
+  #     context: .
+  #     dockerfile: infrastructure/docker/services/render-orchestrator.Dockerfile
+  #   environment:
+  #     - MINIO_ENDPOINT=minio:9000
+  #     - MINIO_ACCESS_KEY=minioadmin
+  #     - MINIO_SECRET_KEY=minioadmin
+  #     - MINIO_BUCKET=legal-sim-renders
+  #   depends_on:
+  #     minio:
+  #       condition: service_healthy
+  #   volumes:
+  #     - ./services:/app/services
+  #     - ./config:/app/config
+  #     - render_cache:/app/cache
+  #     - /tmp/.X11-unix:/tmp/.X11-unix:rw  # For Blender GUI if needed
+
+  # Frontend Applications (commented out until created)
+  # case-dashboard:
+  #   build:
+  #     context: ./web/case-dashboard
+  #     dockerfile: Dockerfile
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     - REACT_APP_API_URL=http://localhost:8000
+  #   depends_on:
+  #     - api-gateway
+  #   volumes:
+  #     - ./web/case-dashboard:/app
+  #     - /app/node_modules
+
+  # storyboard-editor:
+  #   build:
+  #     context: ./web/storyboard-editor
+  #     dockerfile: Dockerfile
+  #   ports:
+  #     - "3001:3000"
+  #   environment:
+  #     - REACT_APP_API_URL=http://localhost:8000
+  #   depends_on:
+  #     - api-gateway
+  #   volumes:
+  #     - ./web/storyboard-editor:/app
+  #     - /app/node_modules
+
+  # render-console:
+  #   build:
+  #     context: ./web/render-console
+  #     dockerfile: Dockerfile
+  #   ports:
+  #     - "3002:3000"
+  #   environment:
+  #     - REACT_APP_API_URL=http://localhost:8000
+  #   depends_on:
+  #     - api-gateway
+  #   volumes:
+  #     - ./web/render-console:/app
+  #     - /app/node_modules
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  evidence_cache:
+  timeline_cache:
+  # render_cache: (commented out until render service is created)
+
+networks:
+  default:
+    name: legal-sim-network
