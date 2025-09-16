@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { RenderProgressMonitor } from '../../../shared/components/render/RenderProgressMonitor';
+import { RenderProgressMonitor } from '../../../../shared/components/render/RenderProgressMonitor';
 
 export const RendersPage: React.FC = () => {
   const [renderJobs, setRenderJobs] = useState([
@@ -53,7 +53,7 @@ export const RendersPage: React.FC = () => {
   const handleCancelJob = (jobId: string) => {
     setRenderJobs(prev => prev.map(job => 
       job.id === jobId 
-        ? { ...job, status: 'cancelled' as const }
+        ? { ...job, status: 'cancelled' as const, queuePosition: undefined }
         : job
     ));
   };
@@ -61,7 +61,7 @@ export const RendersPage: React.FC = () => {
   const handleRetryJob = (jobId: string) => {
     setRenderJobs(prev => prev.map(job => 
       job.id === jobId 
-        ? { ...job, status: 'queued' as const, progress: 0, error: undefined }
+        ? { ...job, status: 'queued' as const, progress: 0, error: undefined, queuePosition: 1 }
         : job
     ));
   };

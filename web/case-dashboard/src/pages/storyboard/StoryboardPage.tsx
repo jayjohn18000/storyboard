@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { StoryboardEditor } from '../../../shared/components/storyboard/StoryboardEditor';
+import { StoryboardEditor } from '../../../../shared/components/storyboard/StoryboardEditor';
 
 export const StoryboardPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();

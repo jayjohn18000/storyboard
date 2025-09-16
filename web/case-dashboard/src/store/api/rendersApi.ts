@@ -121,8 +121,6 @@ export const rendersApi = createApi({
     getRenderProgress: builder.query<RenderJob, string>({
       query: (id) => `/${id}/progress`,
       providesTags: (result, error, id) => [{ type: 'Render', id }],
-      // Polling for real-time updates
-      pollingInterval: 5000,
     }),
     getSystemMetrics: builder.query<{
       cpuUsage: number;
