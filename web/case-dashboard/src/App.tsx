@@ -9,6 +9,7 @@ import { EvidencePage } from './pages/evidence/EvidencePage';
 import { StoryboardPage } from './pages/storyboard/StoryboardPage';
 import { RendersPage } from './pages/renders/RendersPage';
 import { ProfilePage } from './pages/profile/ProfilePage';
+import DocsPage from './pages/docs/DocsPage';
 
 function App() {
   return (
@@ -26,6 +27,7 @@ function App() {
         <Route path="cases" element={<CasesPage />} />
         <Route path="cases/:caseId" element={<CaseDetailPage />} />
         <Route path="evidence" element={<EvidencePage />} />
+        <Route path="docs" element={<DocsPage />} />
         <Route path="storyboards/:id" element={<StoryboardPage />} />
         <Route path="renders" element={<RendersPage />} />
         <Route path="profile" element={<ProfilePage />} />
