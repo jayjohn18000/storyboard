@@ -60,48 +60,22 @@ export const storyboardsApi = createApi({
   tagTypes: ['Storyboard'],
   endpoints: (builder) => ({
     getStoryboards: builder.query<Storyboard[], { caseId?: string }>({
-      query: ({ caseId }) => (caseId ? `?caseId=${caseId}` : ''),
+      query: ({ caseId }) => (caseId ? `?case_id_filter=${caseId}` : ''),
       providesTags: ['Storyboard'],
-      // Mock data for development
-      transformResponse: () => [
-        {
-          id: 'sb-001',
-          caseId: 'case-001',
-          title: 'Main Timeline',
-          content: `@time[0.0] #actor[John] ~action[enters room] ^evidence[doc-001]
-John walks into the courtroom and takes his seat.
-
-@time[5.0] #actor[Judge] ~action[addresses court] ^evidence[audio-001@00:30]
-The judge calls the court to order and begins the proceedings.`,
-          beats: [
-            {
-              id: 'beat-001',
-              timestamp: 0,
-              description: 'John walks into the courtroom and takes his seat',
-              actors: ['John'],
-              evidenceAnchors: [{ evidenceId: 'doc-001', description: 'Contract document' }],
-              confidence: 0.9,
-              disputed: false,
-              duration: 5,
-            },
-            {
-              id: 'beat-002',
-              timestamp: 5,
-              description: 'The judge calls the court to order and begins the proceedings',
-              actors: ['Judge'],
-              evidenceAnchors: [{ evidenceId: 'audio-001', timestamp: 30, description: 'Court recording' }],
-              confidence: 0.95,
-              disputed: false,
-              duration: 10,
-            },
-          ],
-          isValid: true,
-          validationErrors: [],
-          createdAt: '2024-01-15T00:00:00Z',
-          updatedAt: '2024-01-20T00:00:00Z',
-          createdBy: 'John Attorney',
-        },
-      ],
+      transformResponse: (response: any[]) => {
+        return response.map(storyboard => ({
+          id: storyboard.id,
+          caseId: storyboard.metadata?.case_id || storyboard.case_id,
+          title: storyboard.metadata?.title || storyboard.title,
+          content: storyboard.scenes ? JSON.stringify(storyboard.scenes) : '',
+          beats: [], // Will be parsed from content
+          isValid: storyboard.validation_result?.isValid || false,
+          validationErrors: storyboard.validation_result?.errors || [],
+          createdAt: storyboard.metadata?.created_at || storyboard.created_at,
+          updatedAt: storyboard.updated_at,
+          createdBy: storyboard.metadata?.created_by || 'Unknown',
+        }));
+      },
     }),
     getStoryboard: builder.query<Storyboard, string>({
       query: (id) => `/${id}`,

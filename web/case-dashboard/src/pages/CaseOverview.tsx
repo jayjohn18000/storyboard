@@ -7,10 +7,13 @@ import {
   PlayIcon,
   CheckCircleIcon,
   ExclamationTriangleIcon,
-  ClockIcon,
   UserGroupIcon,
   ChartBarIcon
 } from '@heroicons/react/24/outline';
+import { useGetCaseQuery } from '../store/api/casesApi';
+import { useGetEvidenceQuery } from '../store/api/evidenceApi';
+import { useGetStoryboardsQuery } from '../store/api/storyboardsApi';
+import { useGetRendersQuery } from '../store/api/rendersApi';
 
 interface Case {
   id: string;
@@ -61,90 +64,80 @@ interface ValidationStatus {
   lastValidated: Date;
 }
 
-export const CaseOverview: React.FC = () => {
-  const [caseData, setCaseData] = useState<Case | null>(null);
-  const [evidenceSummary, setEvidenceSummary] = useState<EvidenceSummary | null>(null);
-  const [timelinePreview, setTimelinePreview] = useState<TimelinePreview | null>(null);
-  const [validationStatus, setValidationStatus] = useState<ValidationStatus | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+interface CaseOverviewProps {
+  caseId: string;
+}
 
-  useEffect(() => {
-    // Simulate API call
-    const loadCaseData = async () => {
-      setIsLoading(true);
-      
-      // Mock data
-      setTimeout(() => {
-        setCaseData({
-          id: 'case-001',
-          title: 'Smith vs. Johnson Contract Dispute',
-          mode: 'demonstrative',
-          jurisdiction: 'US-Federal',
-          status: 'in_review',
-          createdAt: new Date('2024-01-15'),
-          updatedAt: new Date('2024-01-20'),
-          createdBy: 'John Attorney',
-          evidenceCount: 25,
-          storyboardCount: 3,
-          renderCount: 1,
-          validationStatus: 'valid',
-          coveragePercentage: 95
-        });
+export const CaseOverview: React.FC<CaseOverviewProps> = ({ caseId }) => {
+  const { data: caseData, isLoading: caseLoading, error: caseError } = useGetCaseQuery(caseId);
+  const { data: evidenceData, isLoading: evidenceLoading } = useGetEvidenceQuery({ caseId });
+  const { data: storyboardsData, isLoading: storyboardsLoading } = useGetStoryboardsQuery({ caseId });
+  const { data: rendersData, isLoading: rendersLoading } = useGetRendersQuery({ caseId });
 
-        setEvidenceSummary({
-          total: 25,
-          byType: {
-            documents: 12,
-            photos: 8,
-            videos: 3,
-            audio: 2
-          },
-          recent: [
-            {
-              id: 'ev-001',
-              name: 'Contract_Amendment.pdf',
-              type: 'document',
-              uploadedAt: new Date('2024-01-20T10:30:00'),
-              thumbnail: '/thumbnails/doc-thumb.png'
-            },
-            {
-              id: 'ev-002',
-              name: 'Meeting_Recording.mp3',
-              type: 'audio',
-              uploadedAt: new Date('2024-01-19T14:15:00')
-            },
-            {
-              id: 'ev-003',
-              name: 'Evidence_Photo_001.jpg',
-              type: 'photo',
-              uploadedAt: new Date('2024-01-19T09:45:00'),
-              thumbnail: '/thumbnails/photo-thumb.jpg'
-            }
-          ]
-        });
+  const isLoading = caseLoading || evidenceLoading || storyboardsLoading || rendersLoading;
 
-        setTimelinePreview({
-          totalDuration: 180, // 3 minutes
-          beatCount: 15,
-          evidenceAnchors: 12,
-          disputedBeats: 2,
-          confidenceScore: 0.87
-        });
+  // Process evidence summary
+  const evidenceSummary: EvidenceSummary | null = evidenceData ? {
+    total: evidenceData.length,
+    byType: {
+      documents: evidenceData.filter(e => e.type === 'document').length,
+      photos: evidenceData.filter(e => e.type === 'image' || e.type === 'photo').length,
+      videos: evidenceData.filter(e => e.type === 'video').length,
+      audio: evidenceData.filter(e => e.type === 'audio').length,
+    },
+    recent: evidenceData
+      .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime())
+      .slice(0, 3)
+      .map(evidence => ({
+        id: evidence.id,
+        name: evidence.name,
+        type: evidence.type,
+        uploadedAt: new Date(evidence.uploadedAt),
+        thumbnail: evidence.type === 'image' ? '/thumbnails/photo-thumb.jpg' : 
+                  evidence.type === 'document' ? '/thumbnails/doc-thumb.png' : undefined
+      }))
+  } : null;
 
-        setValidationStatus({
-          isValid: true,
-          errors: [],
-          warnings: ['Beat 7 has low confidence score'],
-          coveragePercentage: 95,
-          lastValidated: new Date('2024-01-20T15:30:00')
-        });
+  // Process timeline preview
+  const timelinePreview: TimelinePreview | null = storyboardsData ? {
+    totalDuration: storyboardsData.reduce((total, sb) => {
+      try {
+        const scenes = JSON.parse(sb.content);
+        return total + scenes.reduce((sum: number, scene: any) => sum + (scene.duration_seconds || 0), 0);
+      } catch {
+        return total;
+      }
+    }, 0),
+    beatCount: storyboardsData.reduce((total, sb) => {
+      try {
+        const scenes = JSON.parse(sb.content);
+        return total + scenes.length;
+      } catch {
+        return total;
+      }
+    }, 0),
+    evidenceAnchors: storyboardsData.reduce((total, sb) => {
+      try {
+        const scenes = JSON.parse(sb.content);
+        return total + scenes.reduce((sum: number, scene: any) => 
+          sum + (scene.evidence_anchors?.length || 0), 0);
+      } catch {
+        return total;
+      }
+    }, 0),
+    disputedBeats: storyboardsData.filter(sb => !sb.isValid).length,
+    confidenceScore: storyboardsData.length > 0 ? 
+      storyboardsData.filter(sb => sb.isValid).length / storyboardsData.length : 0
+  } : null;
 
-        setIsLoading(false);
-      }, 1000);
-    };
-
-    loadCaseData();
-  }, []);
+  // Process validation status
+  const validationStatus: ValidationStatus | null = storyboardsData ? {
+    isValid: storyboardsData.every(sb => sb.isValid),
+    errors: storyboardsData.flatMap(sb => sb.validationErrors),
+    warnings: storyboardsData.filter(sb => !sb.isValid).map(sb => `Storyboard ${sb.title} has validation issues`),
+    coveragePercentage: evidenceData ? Math.round((evidenceData.length / Math.max(evidenceData.length, 1)) * 100) : 0,
+    lastValidated: new Date(Math.max(...storyboardsData.map(sb => new Date(sb.updatedAt).getTime())))
+  } : null;
 
   const getStatusColor = (status: Case['status']) => {
     switch (status) {

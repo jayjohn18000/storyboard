@@ -44,45 +44,25 @@ export const evidenceApi = createApi({
   tagTypes: ['Evidence'],
   endpoints: (builder) => ({
     getEvidence: builder.query<Evidence[], { caseId?: string }>({
-      query: ({ caseId }) => (caseId ? `?caseId=${caseId}` : ''),
+      query: ({ caseId }) => (caseId ? `?case_id_filter=${caseId}` : ''),
       providesTags: ['Evidence'],
-      // Mock data for development
-      transformResponse: () => [
-        {
-          id: 'ev-001',
-          name: 'Contract_Amendment.pdf',
-          type: 'document',
-          size: 1024000,
-          sha256: 'a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456',
-          uploadedAt: '2024-01-20T10:30:00Z',
-          uploadedBy: 'John Attorney',
-          caseId: 'case-001',
-          description: 'Contract amendment document',
-          chainOfCustody: ['John Attorney', 'Legal Team'],
-          status: 'completed',
-          metadata: {
-            pageCount: 5,
-            format: 'PDF',
-          },
-        },
-        {
-          id: 'ev-002',
-          name: 'Meeting_Recording.mp3',
-          type: 'audio',
-          size: 5120000,
-          sha256: 'b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef1234567',
-          uploadedAt: '2024-01-19T14:15:00Z',
-          uploadedBy: 'Jane Lawyer',
-          caseId: 'case-001',
-          description: 'Meeting recording',
-          chainOfCustody: ['Jane Lawyer'],
-          status: 'completed',
-          metadata: {
-            duration: 1800,
-            format: 'MP3',
-          },
-        },
-      ],
+      transformResponse: (response: any[]) => {
+        return response.map(evidence => ({
+          id: evidence.id,
+          name: evidence.metadata?.filename || evidence.filename,
+          type: evidence.evidence_type || 'document',
+          size: evidence.metadata?.size_bytes || evidence.file_size,
+          sha256: evidence.metadata?.checksum || evidence.file_hash,
+          uploadedAt: evidence.metadata?.uploaded_at || evidence.uploaded_at,
+          uploadedBy: evidence.metadata?.uploaded_by || evidence.uploaded_by,
+          caseId: evidence.case_id,
+          description: evidence.metadata?.description || '',
+          chainOfCustody: evidence.chain_of_custody || [],
+          status: evidence.status === 'processed' ? 'completed' : 
+                  evidence.status === 'failed' ? 'error' : 'processing',
+          metadata: evidence.processing_result || {},
+        }));
+      },
     }),
     getEvidenceById: builder.query<Evidence, string>({
       query: (id) => `/${id}`,
