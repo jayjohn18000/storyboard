@@ -42,9 +42,11 @@
 - **EvidenceUploader**: `/web/case-dashboard/src/shared/components/evidence/EvidenceUploader.tsx` ✅ (RTK Query integration)
 
 ### Backend TODOs
-- **Cases Router**: `/services/api_gateway/routers/cases.py` - lines 143-153, 186-198, 216-231, 248-263, 280-284, 301-305, 322-326
+- **Cases Router**: `/services/api_gateway/routers/cases.py` - ✅ COMPLETED (all endpoints implemented)
 - **Evidence Router**: `/services/api_gateway/routers/evidence.py` - ✅ COMPLETED (all endpoints implemented)
-- **Storyboards Router**: `/services/api_gateway/routers/storyboards.py` - lines 131-132, 164-189, 206-218, 236-254, 272-286, 304-318, 336-392, 409-424
+- **Storyboards Router**: `/services/api_gateway/routers/storyboards.py` - ✅ COMPLETED (all endpoints implemented)
+- **Renders Router**: `/services/api_gateway/routers/renders.py` - ✅ COMPLETED (all endpoints implemented)
+- **Export Router**: `/services/api_gateway/routers/export.py` - ✅ COMPLETED (all endpoints implemented)
 
 ## API Layer Status
 
@@ -64,13 +66,13 @@
 
 ### Cases API (`/api/v1/cases`)
 - ✅ POST `/` - Create case (implemented)
-- ❌ GET `/` - List cases (TODO: lines 143-153)
-- ❌ GET `/{case_id}` - Get case (TODO: lines 186-198)
-- ❌ PUT `/{case_id}` - Update case (TODO: lines 216-231)
-- ❌ DELETE `/{case_id}` - Delete case (TODO: lines 248-263)
-- ❌ GET `/{case_id}/evidence` - Get case evidence (TODO: lines 280-284)
-- ❌ GET `/{case_id}/storyboards` - Get case storyboards (TODO: lines 301-305)
-- ❌ GET `/{case_id}/renders` - Get case renders (TODO: lines 322-326)
+- ✅ GET `/` - List cases (implemented with database integration)
+- ✅ GET `/{case_id}` - Get case (implemented with database integration)
+- ✅ PUT `/{case_id}` - Update case (implemented with database integration)
+- ✅ DELETE `/{case_id}` - Delete case (implemented with database integration)
+- ✅ GET `/{case_id}/evidence` - Get case evidence (implemented with database integration)
+- ✅ GET `/{case_id}/storyboards` - Get case storyboards (implemented with database integration)
+- ✅ GET `/{case_id}/renders` - Get case renders (implemented with database integration)
 
 ### Evidence API (`/api/v1/evidence`)
 - ✅ POST `/upload` - Upload evidence (implemented with storage integration)
@@ -83,14 +85,35 @@
 - ✅ GET `/{evidence_id}/chain-of-custody` - Get chain of custody (implemented)
 
 ### Storyboards API (`/api/v1/storyboards`)
-- ❌ POST `/` - Create storyboard (TODO: lines 131-132)
-- ❌ GET `/` - List storyboards (TODO: lines 164-189)
-- ❌ GET `/{storyboard_id}` - Get storyboard (TODO: lines 206-218)
-- ❌ PUT `/{storyboard_id}` - Update storyboard (TODO: lines 236-254)
-- ❌ DELETE `/{storyboard_id}` - Delete storyboard (TODO: lines 272-286)
-- ❌ POST `/{storyboard_id}/validate` - Validate storyboard (TODO: lines 304-318)
+- ✅ POST `/` - Create storyboard (implemented with database integration)
+- ✅ GET `/` - List storyboards (implemented with database integration)
+- ✅ GET `/{storyboard_id}` - Get storyboard (implemented with database integration)
+- ✅ PUT `/{storyboard_id}` - Update storyboard (implemented with database integration)
+- ✅ DELETE `/{storyboard_id}` - Delete storyboard (implemented with database integration)
+- ✅ POST `/{storyboard_id}/validate` - Validate storyboard (implemented with database integration)
 - ✅ POST `/{storyboard_id}/compile` - Compile storyboard (implemented with service proxy)
-- ❌ GET `/{storyboard_id}/evidence-coverage` - Get evidence coverage (TODO: lines 409-424)
+- ✅ GET `/{storyboard_id}/evidence-coverage` - Get evidence coverage (implemented with database integration)
+
+### Renders API (`/api/v1/renders`)
+- ✅ POST `/` - Create render job (implemented with database integration)
+- ✅ GET `/` - List renders (implemented with database integration and filtering)
+- ✅ GET `/{render_id}` - Get render (implemented with service proxy)
+- ✅ PUT `/{render_id}` - Update render (implemented with database integration)
+- ✅ DELETE `/{render_id}` - Cancel render (implemented with database integration)
+- ✅ GET `/{render_id}/status` - Get render status (implemented with database integration)
+- ✅ GET `/{render_id}/download` - Download render (implemented with file storage)
+- ✅ GET `/cases/{case_id}/renders` - Get case renders (implemented with service proxy)
+- ✅ GET `/queue/stats` - Get queue statistics (implemented with render service)
+
+### Export API (`/api/v1/export`)
+- ✅ POST `/case` - Export case data (implemented with multiple formats)
+- ✅ GET `/{export_id}` - Get export status (implemented with database integration)
+- ✅ GET `/{export_id}/download` - Download export (implemented with file storage)
+- ✅ GET `/case/{case_id}/summary` - Get case summary (implemented with database integration)
+- ✅ GET `/case/{case_id}/evidence-summary` - Get evidence summary (implemented with database integration)
+- ✅ GET `/case/{case_id}/storyboard-summary` - Get storyboard summary (implemented with database integration)
+- ✅ GET `/case/{case_id}/render-summary` - Get render summary (implemented with database integration)
+- ✅ GET `/case/{case_id}/chain-of-custody` - Get chain of custody (implemented with database integration)
 
 ## Temporal Setup
 
@@ -149,9 +172,9 @@
 
 ### Critical Gaps
 1. ✅ **Frontend Environment**: `.env` file created, mock toggle configured
-2. **Backend TODOs**: Most CRUD endpoints return 404/mock responses
-3. **Storage Integration**: Upload endpoints not implemented
-4. **Auth**: JWT middleware disabled in development
+2. ✅ **Backend TODOs**: All CRUD endpoints implemented with real database integration
+3. ✅ **Storage Integration**: Upload endpoints implemented with evidence service integration
+4. ✅ **Auth**: JWT middleware implemented with real API authentication
 5. **Python Environment**: Temporal dependencies need proper environment setup
 
 ### Missing Components
