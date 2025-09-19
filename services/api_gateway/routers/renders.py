@@ -6,12 +6,21 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 
 from ...shared.models.render import RenderJob, RenderStatus, RenderQuality
+from ...shared.services.database_service import DatabaseService
+from ...shared.services.render_service import RenderService
+from ...shared.database import get_db_session
 from ...shared.policy.middleware import requires
 from ..middleware.auth import get_current_user
 from ..middleware.mode_enforcer import ModeEnforcer
 
 
 router = APIRouter()
+
+
+async def get_render_service(db_session = Depends(get_db_session)) -> RenderService:
+    """Get render service instance."""
+    db_service = DatabaseService(db_session)
+    return RenderService(db_service)
 
 
 class RenderRequest(BaseModel):
@@ -101,41 +110,61 @@ async def create_render(
         output_format=request.output_format,
     )
     
-    # TODO: Save to database and queue
-    # await render_service.create_render_job(render_job)
-    
-    return RenderResponse(
-        id=render_job.id,
-        timeline_id=render_job.timeline_id,
-        storyboard_id=render_job.storyboard_id,
-        case_id=render_job.case_id,
-        status=render_job.status,
-        priority=render_job.priority,
-        created_by=render_job.created_by,
-        created_at=render_job.created_at,
-        started_at=render_job.started_at,
-        completed_at=render_job.completed_at,
-        width=render_job.width,
-        height=render_job.height,
-        fps=render_job.fps,
-        quality=render_job.quality,
-        profile=render_job.profile,
-        deterministic=render_job.deterministic,
-        seed=render_job.seed,
-        output_format=render_job.output_format,
-        output_path=render_job.output_path,
-        file_size_bytes=render_job.file_size_bytes,
-        duration_seconds=render_job.duration_seconds,
-        render_time_seconds=render_job.render_time_seconds,
-        frames_rendered=render_job.frames_rendered,
-        total_frames=render_job.total_frames,
-        progress_percentage=render_job.progress_percentage,
-        error_message=render_job.error_message,
-        retry_count=render_job.retry_count,
-        max_retries=render_job.max_retries,
-        checksum=render_job.checksum,
-        golden_frame_checksums=render_job.golden_frame_checksums,
-    )
+    try:
+        # Save to database and queue
+        created_render = await render_service.create_render_job(
+            timeline_id=request.timeline_id,
+            storyboard_id=request.storyboard_id,
+            case_id=request.case_id,
+            width=request.width,
+            height=request.height,
+            fps=request.fps,
+            quality=request.quality,
+            profile=request.profile,
+            deterministic=request.deterministic,
+            seed=request.seed,
+            output_format=request.output_format,
+            priority=request.priority,
+            created_by=current_user
+        )
+        
+        return RenderResponse(
+            id=str(created_render.id),
+            timeline_id=created_render.timeline_id,
+            storyboard_id=created_render.storyboard_id,
+            case_id=created_render.case_id,
+            status=created_render.status,
+            priority=created_render.priority,
+            created_by=created_render.created_by,
+            created_at=created_render.created_at,
+            started_at=created_render.started_at,
+            completed_at=created_render.completed_at,
+            width=created_render.width,
+            height=created_render.height,
+            fps=created_render.fps,
+            quality=created_render.quality,
+            profile=created_render.profile,
+            deterministic=created_render.deterministic,
+            seed=created_render.seed,
+            output_format=created_render.output_format,
+            output_path=created_render.output_path,
+            file_size_bytes=created_render.file_size_bytes,
+            duration_seconds=created_render.duration_seconds,
+            render_time_seconds=created_render.render_time_seconds,
+            frames_rendered=created_render.frames_rendered,
+            total_frames=created_render.total_frames,
+            progress_percentage=created_render.progress_percentage,
+            error_message=created_render.error_message,
+            retry_count=created_render.retry_count,
+            max_retries=created_render.max_retries,
+            checksum=created_render.checksum,
+            golden_frame_checksums=created_render.golden_frame_checksums,
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create render job: {str(e)}"
+        )
 
 
 @router.get("/", response_model=List[RenderResponse])

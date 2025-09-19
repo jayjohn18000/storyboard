@@ -1,5 +1,4 @@
-// Simple session management utilities
-// TODO: Replace with proper JWT token management when backend is ready
+// Authentication utilities with real API integration
 
 export interface User {
   id: string;
@@ -14,7 +13,19 @@ export interface Session {
   expiresAt: Date;
 }
 
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface LoginResponse {
+  user: User;
+  token: string;
+  expiresAt: string;
+}
+
 const SESSION_KEY = 'legal-sim-session';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 export const getSession = (): Session | null => {
   try {
@@ -54,31 +65,138 @@ export const getCurrentUser = (): User | null => {
   return session?.user || null;
 };
 
-// Mock login function for development
-export const mockLogin = async (email: string, password: string): Promise<Session> => {
-  // Simulate API call delay
-  await new Promise(resolve => setTimeout(resolve, 1000));
-  
-  // Mock user data
-  const mockUser: User = {
-    id: 'user-001',
-    email,
-    name: email.split('@')[0],
-    role: 'attorney'
-  };
-  
-  const session: Session = {
-    user: mockUser,
-    token: 'mock-jwt-token',
-    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
-  };
-  
-  setSession(session);
-  return session;
+export const getAuthToken = (): string | null => {
+  const session = getSession();
+  return session?.token || null;
 };
 
-export const mockLogout = async (): Promise<void> => {
-  // Simulate API call delay
-  await new Promise(resolve => setTimeout(resolve, 500));
-  clearSession();
+// Real authentication functions
+export const login = async (email: string, password: string): Promise<Session> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email, password }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.detail || `Login failed: ${response.statusText}`);
+    }
+
+    const data: LoginResponse = await response.json();
+    
+    const session: Session = {
+      user: data.user,
+      token: data.token,
+      expiresAt: new Date(data.expiresAt),
+    };
+    
+    setSession(session);
+    return session;
+  } catch (error) {
+    console.error('Login error:', error);
+    throw error;
+  }
+};
+
+export const logout = async (): Promise<void> => {
+  try {
+    const token = getAuthToken();
+    if (token) {
+      await fetch(`${API_BASE_URL}/api/v1/auth/logout`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+    }
+  } catch (error) {
+    console.error('Logout error:', error);
+  } finally {
+    clearSession();
+  }
+};
+
+export const refreshToken = async (): Promise<Session | null> => {
+  try {
+    const token = getAuthToken();
+    if (!token) return null;
+
+    const response = await fetch(`${API_BASE_URL}/api/v1/auth/refresh`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      clearSession();
+      return null;
+    }
+
+    const data: LoginResponse = await response.json();
+    
+    const session: Session = {
+      user: data.user,
+      token: data.token,
+      expiresAt: new Date(data.expiresAt),
+    };
+    
+    setSession(session);
+    return session;
+  } catch (error) {
+    console.error('Token refresh error:', error);
+    clearSession();
+    return null;
+  }
+};
+
+// API request helper with automatic token handling
+export const apiRequest = async (
+  url: string,
+  options: RequestInit = {}
+): Promise<Response> => {
+  const token = getAuthToken();
+  
+  const headers = {
+    'Content-Type': 'application/json',
+    ...options.headers,
+  };
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${API_BASE_URL}${url}`, {
+    ...options,
+    headers,
+  });
+
+  // Handle token expiration
+  if (response.status === 401) {
+    const refreshedSession = await refreshToken();
+    if (!refreshedSession) {
+      clearSession();
+      window.location.href = '/login';
+      throw new Error('Session expired');
+    }
+    
+    // Retry the request with the new token
+    const newHeaders = {
+      ...headers,
+      'Authorization': `Bearer ${refreshedSession.token}`,
+    };
+    
+    return fetch(`${API_BASE_URL}${url}`, {
+      ...options,
+      headers: newHeaders,
+    });
+  }
+
+  return response;
 };

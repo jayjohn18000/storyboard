@@ -14,11 +14,11 @@ from unittest.mock import Mock, patch
 import numpy as np
 
 # Import render services
-from services.render_orchestrator.implementations.blender.local_renderer import BlenderLocalRenderer
+from services.render-orchestrator.implementations.blender.local_renderer import BlenderLocalRenderer
 from services.render_orchestrator.implementations.blender.profiles.neutral import NeutralProfile
 from services.render_orchestrator.implementations.blender.profiles.cinematic import CinematicProfile
 from services.render_orchestrator.implementations.blender.determinism import DeterminismManager
-from services.timeline_compiler.scene_graph.usd_builder import USDBuilder
+from services.timeline-compiler.scene_graph.usd_builder import USDBuilder
 from services.shared.models.render import RenderJob, RenderQuality
 
 

@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 from io import BytesIO
 
-from services.evidence_processor.main import app
+from services.evidence-processor.main import app
 
 
 class TestEvidenceUpload:

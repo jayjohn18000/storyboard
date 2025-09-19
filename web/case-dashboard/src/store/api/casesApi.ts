@@ -1,11 +1,12 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
+import { getAuthToken } from '../../utils/auth';
 
 export interface Case {
   id: string;
   title: string;
   mode: 'sandbox' | 'demonstrative';
   jurisdiction: string;
-  status: 'draft' | 'in_review' | 'approved' | 'locked';
+  status: 'draft' | 'active' | 'archived' | 'closed';
   createdAt: string;
   updatedAt: string;
   createdBy: string;
@@ -28,7 +29,7 @@ export interface UpdateCaseRequest {
   title?: string;
   mode?: 'sandbox' | 'demonstrative';
   jurisdiction?: string;
-  status?: 'draft' | 'in_review' | 'approved' | 'locked';
+  status?: 'draft' | 'active' | 'archived' | 'closed';
   description?: string;
 }
 
@@ -39,7 +40,7 @@ export const casesApi = createApi({
   baseQuery: fetchBaseQuery({
     baseUrl: `${API_BASE_URL}/api/v1/cases`,
     prepareHeaders: (headers) => {
-      const token = localStorage.getItem('legal-sim-token');
+      const token = getAuthToken();
       if (token) {
         headers.set('authorization', `Bearer ${token}`);
       }

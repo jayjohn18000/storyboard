@@ -1,1 +1,0 @@
-"""Video post-processing overlays."""

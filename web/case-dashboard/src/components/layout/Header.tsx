@@ -6,7 +6,7 @@ import {
   ArrowRightOnRectangleIcon,
   Cog6ToothIcon,
 } from '@heroicons/react/24/outline';
-import { getCurrentUser, mockLogout } from '../../utils/auth';
+import { getCurrentUser, logout } from '../../utils/auth';
 
 export const Header: React.FC = () => {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -14,8 +14,14 @@ export const Header: React.FC = () => {
   const user = getCurrentUser();
 
   const handleLogout = async () => {
-    await mockLogout();
-    navigate('/login');
+    try {
+      await logout();
+      navigate('/login');
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Still navigate to login even if logout fails
+      navigate('/login');
+    }
   };
 
   return (

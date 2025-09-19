@@ -21,8 +21,8 @@ from services.shared.models.case import Case, CaseMode, CaseType
 from services.shared.models.evidence import Evidence, EvidenceType
 from services.shared.models.storyboard import Storyboard
 from services.shared.models.render import RenderJob
-from services.evidence_processor.pipelines.document_pipeline import DocumentPipeline
-from services.render_orchestrator.implementations.blender.local_renderer import BlenderLocalRenderer
+from services.evidence-processor.pipelines.document_pipeline import DocumentPipeline
+from services.render-orchestrator.implementations.blender.local_renderer import BlenderLocalRenderer
 
 
 class TestLoadScenarios:

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { mockLogin, isAuthenticated } from '../../utils/auth';
+import { login, isAuthenticated } from '../../utils/auth';
 
 export const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -22,11 +22,11 @@ export const LoginPage: React.FC = () => {
     setError('');
 
     try {
-      await mockLogin(email, password);
+      await login(email, password);
       // Redirect will happen automatically due to isAuthenticated() check
       window.location.href = from;
-    } catch (err) {
-      setError('Invalid email or password');
+    } catch (err: any) {
+      setError(err.message || 'Invalid email or password');
     } finally {
       setIsLoading(false);
     }
@@ -109,7 +109,7 @@ export const LoginPage: React.FC = () => {
 
           <div className="text-center">
             <p className="text-sm text-gray-600">
-              Demo credentials: any email/password combination
+              Enter your credentials to access the platform
             </p>
           </div>
         </form>

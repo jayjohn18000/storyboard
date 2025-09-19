@@ -17,9 +17,9 @@ from PIL import Image, ImageDraw, ImageFont
 # Import the services we're testing
 from services.shared.models.evidence import Evidence, EvidenceType
 from services.shared.models.case import Case
-from services.evidence_processor.pipelines.document_pipeline import DocumentPipeline
-from services.evidence_processor.pipelines.audio_pipeline import AudioPipeline
-from services.evidence_processor.pipelines.video_pipeline import VideoPipeline
+from services.evidence-processor.pipelines.document_pipeline import DocumentPipeline
+from services.evidence-processor.pipelines.audio_pipeline import AudioPipeline
+from services.evidence-processor.pipelines.video_pipeline import VideoPipeline
 from services.shared.implementations.storage.local_storage import LocalStorage
 from services.shared.implementations.ocr.tesseract_local import TesseractLocalOCR
 from services.shared.implementations.asr.whisperx_local import WhisperXLocalASR

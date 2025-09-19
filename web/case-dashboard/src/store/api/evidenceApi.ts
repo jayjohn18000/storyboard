@@ -1,9 +1,10 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
+import { getAuthToken } from '../../utils/auth';
 
 export interface Evidence {
   id: string;
   name: string;
-  type: string;
+  type: 'document' | 'image' | 'audio' | 'video' | 'object' | 'testimony';
   size: number;
   sha256: string;
   uploadedAt: string;
@@ -11,7 +12,7 @@ export interface Evidence {
   caseId?: string;
   description?: string;
   chainOfCustody: string[];
-  status: 'processing' | 'completed' | 'error';
+  status: 'uploaded' | 'processing' | 'processed' | 'failed' | 'archived';
   metadata?: {
     duration?: number;
     pageCount?: number;
@@ -34,7 +35,7 @@ export const evidenceApi = createApi({
   baseQuery: fetchBaseQuery({
     baseUrl: `${API_BASE_URL}/api/v1/evidence`,
     prepareHeaders: (headers) => {
-      const token = localStorage.getItem('legal-sim-token');
+      const token = getAuthToken();
       if (token) {
         headers.set('authorization', `Bearer ${token}`);
       }

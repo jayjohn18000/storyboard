@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Simplified API Gateway for testing frontend-to-backend pipeline.
-This version doesn't require database connections.
+This version uses real services and database connections.
 """
 
 import sys
@@ -12,24 +12,36 @@ from pathlib import Path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
+from typing import List, Optional
+
+# Import shared services
+from services.shared.database import get_db_session
+from services.shared.services.database_service import DatabaseService
+from services.shared.services.evidence_service import EvidenceService
+from services.shared.services.render_service import RenderService
+from services.shared.config import get_config
 
 # Create FastAPI application
 app = FastAPI(
     title="Legal Simulation API Gateway",
-    description="Simplified API Gateway for testing",
+    description="API Gateway with real service integration",
     version="0.1.0",
     docs_url="/docs",
     redoc_url="/redoc",
 )
 
-# Add CORS middleware
+# Get configuration
+config = get_config()
+
+# Add CORS middleware with environment-based origins
+cors_origins = config.get("CORS_ORIGINS", "http://localhost:3002,http://localhost:3000").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3002", "http://localhost:3000"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -46,185 +58,295 @@ async def health_check():
         "message": "Simplified API Gateway is running"
     }
 
-# Mock data for testing
-MOCK_CASES = [
-    {
-        "id": "case-1",
-        "title": "Sample Case 1",
-        "status": "draft",
-        "created_at": "2024-01-01T00:00:00Z",
-        "updated_at": "2024-01-01T00:00:00Z",
-        "created_by": "user-1",
-        "metadata": {
-            "title": "Sample Case 1",
-            "case_type": "CIVIL",
-            "jurisdiction": "Federal Court",
-            "created_by": "user-1"
-        },
-        "evidence_ids": ["evidence-1", "evidence-2"],
-        "storyboard_ids": ["storyboard-1"],
-        "render_ids": ["render-1"]
-    }
-]
+# Service dependencies
+async def get_database_service():
+    """Get database service instance."""
+    db_session = get_db_session()
+    return DatabaseService(db_session)
 
-MOCK_EVIDENCE = [
-    {
-        "id": "evidence-1",
-        "filename": "sample-document.pdf",
-        "content_type": "application/pdf",
-        "size_bytes": 1024000,
-        "checksum": "abc123def456",
-        "created_at": "2024-01-01T00:00:00Z",
-        "worm_locked": False,
-        "case_id": "case-1",
-        "status": "processed",
-        "uploaded_by": "user-1",
-        "processing_results": {
-            "text": "Sample document content",
-            "entities": ["John Doe", "ABC Corp"],
-            "confidence": {"overall": 0.95}
-        }
-    },
-    {
-        "id": "evidence-2",
-        "filename": "sample-image.jpg",
-        "content_type": "image/jpeg",
-        "size_bytes": 512000,
-        "checksum": "def456ghi789",
-        "created_at": "2024-01-01T00:00:00Z",
-        "worm_locked": False,
-        "case_id": "case-1",
-        "status": "processed",
-        "uploaded_by": "user-1",
-        "processing_results": {
-            "text": "Sample image description",
-            "entities": ["Jane Smith"],
-            "confidence": {"overall": 0.88}
-        }
-    }
-]
+async def get_evidence_service():
+    """Get evidence service instance."""
+    db_service = await get_database_service()
+    return EvidenceService(db_service)
 
-MOCK_STORYBOARDS = [
-    {
-        "id": "storyboard-1",
-        "case_id": "case-1",
-        "title": "Sample Storyboard",
-        "content": '{"scenes": [{"id": "scene-1", "description": "Opening scene", "duration_seconds": 30}]}',
-        "created_at": "2024-01-01T00:00:00Z",
-        "updated_at": "2024-01-01T00:00:00Z",
-        "created_by": "user-1",
-        "validation_result": {
-            "is_valid": True,
-            "errors": []
-        }
-    }
-]
-
-MOCK_RENDERS = [
-    {
-        "id": "render-1",
-        "case_id": "case-1",
-        "storyboard_id": "storyboard-1",
-        "timeline_id": "timeline-1",
-        "status": "completed",
-        "priority": 0,
-        "created_by": "user-1",
-        "created_at": "2024-01-01T00:00:00Z",
-        "started_at": "2024-01-01T00:01:00Z",
-        "completed_at": "2024-01-01T00:05:00Z",
-        "width": 1920,
-        "height": 1080,
-        "fps": 30,
-        "quality": "standard",
-        "profile": "neutral",
-        "deterministic": True,
-        "output_format": "mp4",
-        "output_path": "/renders/render-1.mp4",
-        "file_size_bytes": 50000000,
-        "duration_seconds": 120,
-        "render_time_seconds": 240,
-        "frames_rendered": 3600,
-        "total_frames": 3600,
-        "progress_percentage": 100,
-        "error_message": "",
-        "retry_count": 0,
-        "max_retries": 3,
-        "checksum": "render123checksum",
-        "golden_frame_checksums": ["frame1", "frame2"]
-    }
-]
+async def get_render_service():
+    """Get render service instance."""
+    db_service = await get_database_service()
+    return RenderService(db_service)
 
 # Cases API endpoints
 @app.get("/api/v1/cases")
-async def get_cases():
+async def get_cases(db_service: DatabaseService = Depends(get_database_service)):
     """Get all cases."""
-    return MOCK_CASES
+    try:
+        cases = await db_service.list_cases(skip=0, limit=100)
+        return [
+            {
+                "id": str(case.id),
+                "title": case.title,
+                "status": case.status,
+                "created_at": case.created_at.isoformat(),
+                "updated_at": case.updated_at.isoformat(),
+                "created_by": case.created_by,
+                "metadata": case.metadata,
+                "evidence_ids": case.evidence_ids or [],
+                "storyboard_ids": case.storyboard_ids or [],
+                "render_ids": case.render_ids or []
+            }
+            for case in cases
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve cases: {str(e)}")
 
 @app.get("/api/v1/cases/{case_id}")
-async def get_case(case_id: str):
+async def get_case(case_id: str, db_service: DatabaseService = Depends(get_database_service)):
     """Get a specific case."""
-    case = next((c for c in MOCK_CASES if c["id"] == case_id), None)
+    try:
+        case = await db_service.get_case(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
-    return case
+        
+        return {
+            "id": str(case.id),
+            "title": case.title,
+            "status": case.status,
+            "created_at": case.created_at.isoformat(),
+            "updated_at": case.updated_at.isoformat(),
+            "created_by": case.created_by,
+            "metadata": case.metadata,
+            "evidence_ids": case.evidence_ids or [],
+            "storyboard_ids": case.storyboard_ids or [],
+            "render_ids": case.render_ids or []
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve case: {str(e)}")
 
 # Evidence API endpoints
 @app.get("/api/v1/evidence")
-async def get_evidence():
+async def get_evidence(evidence_service: EvidenceService = Depends(get_evidence_service)):
     """Get all evidence."""
-    return MOCK_EVIDENCE
+    try:
+        evidence_list = await evidence_service.list_evidence(skip=0, limit=100)
+        return [
+            {
+                "id": evidence.id,
+                "filename": evidence.metadata.filename,
+                "content_type": evidence.metadata.content_type,
+                "size_bytes": evidence.metadata.size_bytes,
+                "checksum": evidence.metadata.checksum,
+                "created_at": evidence.metadata.created_at.isoformat(),
+                "worm_locked": evidence.worm_locked,
+                "case_id": evidence.case_id,
+                "status": evidence.status.value,
+                "uploaded_by": evidence.metadata.uploaded_by,
+                "processing_results": evidence.processing_result.to_dict() if evidence.processing_result else None
+            }
+            for evidence in evidence_list
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve evidence: {str(e)}")
 
 @app.get("/api/v1/evidence/{evidence_id}")
-async def get_evidence_by_id(evidence_id: str):
+async def get_evidence_by_id(evidence_id: str, evidence_service: EvidenceService = Depends(get_evidence_service)):
     """Get specific evidence."""
-    evidence = next((e for e in MOCK_EVIDENCE if e["id"] == evidence_id), None)
+    try:
+        evidence = await evidence_service.get_evidence(evidence_id)
     if not evidence:
         raise HTTPException(status_code=404, detail="Evidence not found")
-    return evidence
 
-@app.post("/api/v1/evidence/upload")
-async def upload_evidence():
-    """Upload evidence (mock)."""
     return {
-        "id": "evidence-new",
-        "filename": "uploaded-file.pdf",
-        "status": "uploaded",
-        "message": "File uploaded successfully"
-    }
+            "id": evidence.id,
+            "filename": evidence.metadata.filename,
+            "content_type": evidence.metadata.content_type,
+            "size_bytes": evidence.metadata.size_bytes,
+            "checksum": evidence.metadata.checksum,
+            "created_at": evidence.metadata.created_at.isoformat(),
+            "worm_locked": evidence.worm_locked,
+            "case_id": evidence.case_id,
+            "status": evidence.status.value,
+            "uploaded_by": evidence.metadata.uploaded_by,
+            "processing_results": evidence.processing_result.to_dict() if evidence.processing_result else None
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve evidence: {str(e)}")
 
 # Storyboards API endpoints
 @app.get("/api/v1/storyboards")
-async def get_storyboards():
+async def get_storyboards(db_service: DatabaseService = Depends(get_database_service)):
     """Get all storyboards."""
-    return MOCK_STORYBOARDS
+    try:
+        storyboards = await db_service.list_storyboards(skip=0, limit=100)
+        return [
+            {
+                "id": str(storyboard.id),
+                "case_id": storyboard.case_id,
+                "title": storyboard.title,
+                "content": storyboard.content,
+                "created_at": storyboard.created_at.isoformat(),
+                "updated_at": storyboard.updated_at.isoformat(),
+                "created_by": storyboard.created_by,
+                "validation_result": storyboard.validation_result
+            }
+            for storyboard in storyboards
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve storyboards: {str(e)}")
 
 @app.get("/api/v1/storyboards/{storyboard_id}")
-async def get_storyboard(storyboard_id: str):
+async def get_storyboard(storyboard_id: str, db_service: DatabaseService = Depends(get_database_service)):
     """Get specific storyboard."""
-    storyboard = next((s for s in MOCK_STORYBOARDS if s["id"] == storyboard_id), None)
+    try:
+        storyboard = await db_service.get_storyboard(storyboard_id)
     if not storyboard:
         raise HTTPException(status_code=404, detail="Storyboard not found")
-    return storyboard
+        
+        return {
+            "id": str(storyboard.id),
+            "case_id": storyboard.case_id,
+            "title": storyboard.title,
+            "content": storyboard.content,
+            "created_at": storyboard.created_at.isoformat(),
+            "updated_at": storyboard.updated_at.isoformat(),
+            "created_by": storyboard.created_by,
+            "validation_result": storyboard.validation_result
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve storyboard: {str(e)}")
 
 # Renders API endpoints
 @app.get("/api/v1/renders")
-async def get_renders():
+async def get_renders(render_service: RenderService = Depends(get_render_service)):
     """Get all renders."""
-    return MOCK_RENDERS
+    try:
+        renders = await render_service.list_renders(skip=0, limit=100)
+        return [
+            {
+                "id": str(render.id),
+                "case_id": render.case_id,
+                "storyboard_id": render.storyboard_id,
+                "timeline_id": render.timeline_id,
+                "status": render.status.value,
+                "priority": render.priority,
+                "created_by": render.created_by,
+                "created_at": render.created_at.isoformat(),
+                "started_at": render.started_at.isoformat() if render.started_at else None,
+                "completed_at": render.completed_at.isoformat() if render.completed_at else None,
+                "width": render.width,
+                "height": render.height,
+                "fps": render.fps,
+                "quality": render.quality,
+                "profile": render.profile,
+                "deterministic": render.deterministic,
+                "output_format": render.output_format,
+                "output_path": render.output_path,
+                "file_size_bytes": render.file_size_bytes,
+                "duration_seconds": render.duration_seconds,
+                "render_time_seconds": render.render_time_seconds,
+                "frames_rendered": render.frames_rendered,
+                "total_frames": render.total_frames,
+                "progress_percentage": render.progress_percentage,
+                "error_message": render.error_message,
+                "retry_count": render.retry_count,
+                "max_retries": render.max_retries,
+                "checksum": render.checksum,
+                "golden_frame_checksums": render.golden_frame_checksums
+            }
+            for render in renders
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve renders: {str(e)}")
 
 @app.get("/api/v1/renders/{render_id}")
-async def get_render(render_id: str):
+async def get_render(render_id: str, render_service: RenderService = Depends(get_render_service)):
     """Get specific render."""
-    render = next((r for r in MOCK_RENDERS if r["id"] == render_id), None)
+    try:
+        render = await render_service.get_render(render_id)
     if not render:
         raise HTTPException(status_code=404, detail="Render not found")
-    return render
+        
+        return {
+            "id": str(render.id),
+            "case_id": render.case_id,
+            "storyboard_id": render.storyboard_id,
+            "timeline_id": render.timeline_id,
+            "status": render.status.value,
+            "priority": render.priority,
+            "created_by": render.created_by,
+            "created_at": render.created_at.isoformat(),
+            "started_at": render.started_at.isoformat() if render.started_at else None,
+            "completed_at": render.completed_at.isoformat() if render.completed_at else None,
+            "width": render.width,
+            "height": render.height,
+            "fps": render.fps,
+            "quality": render.quality,
+            "profile": render.profile,
+            "deterministic": render.deterministic,
+            "output_format": render.output_format,
+            "output_path": render.output_path,
+            "file_size_bytes": render.file_size_bytes,
+            "duration_seconds": render.duration_seconds,
+            "render_time_seconds": render.render_time_seconds,
+            "frames_rendered": render.frames_rendered,
+            "total_frames": render.total_frames,
+            "progress_percentage": render.progress_percentage,
+            "error_message": render.error_message,
+            "retry_count": render.retry_count,
+            "max_retries": render.max_retries,
+            "checksum": render.checksum,
+            "golden_frame_checksums": render.golden_frame_checksums
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve render: {str(e)}")
 
 @app.get("/api/v1/cases/{case_id}/renders")
-async def get_case_renders(case_id: str):
+async def get_case_renders(case_id: str, render_service: RenderService = Depends(get_render_service)):
     """Get renders for a specific case."""
-    case_renders = [r for r in MOCK_RENDERS if r["case_id"] == case_id]
-    return case_renders
+    try:
+        renders = await render_service.list_renders_by_case(case_id)
+        return [
+            {
+                "id": str(render.id),
+                "case_id": render.case_id,
+                "storyboard_id": render.storyboard_id,
+                "timeline_id": render.timeline_id,
+                "status": render.status.value,
+                "priority": render.priority,
+                "created_by": render.created_by,
+                "created_at": render.created_at.isoformat(),
+                "started_at": render.started_at.isoformat() if render.started_at else None,
+                "completed_at": render.completed_at.isoformat() if render.completed_at else None,
+                "width": render.width,
+                "height": render.height,
+                "fps": render.fps,
+                "quality": render.quality,
+                "profile": render.profile,
+                "deterministic": render.deterministic,
+                "output_format": render.output_format,
+                "output_path": render.output_path,
+                "file_size_bytes": render.file_size_bytes,
+                "duration_seconds": render.duration_seconds,
+                "render_time_seconds": render.render_time_seconds,
+                "frames_rendered": render.frames_rendered,
+                "total_frames": render.total_frames,
+                "progress_percentage": render.progress_percentage,
+                "error_message": render.error_message,
+                "retry_count": render.retry_count,
+                "max_retries": render.max_retries,
+                "checksum": render.checksum,
+                "golden_frame_checksums": render.golden_frame_checksums
+            }
+            for render in renders
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve case renders: {str(e)}")
 
 if __name__ == "__main__":
     print("🚀 Starting Simplified API Gateway on http://localhost:8000")

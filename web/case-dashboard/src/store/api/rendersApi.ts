@@ -1,4 +1,5 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
+import { getAuthToken } from '../../utils/auth';
 
 export interface RenderJob {
   id: string;
@@ -63,7 +64,7 @@ export const rendersApi = createApi({
   baseQuery: fetchBaseQuery({
     baseUrl: `${API_BASE_URL}/api/v1/renders`,
     prepareHeaders: (headers) => {
-      const token = localStorage.getItem('legal-sim-token');
+      const token = getAuthToken();
       if (token) {
         headers.set('authorization', `Bearer ${token}`);
       }
