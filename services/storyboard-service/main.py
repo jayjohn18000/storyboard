@@ -17,7 +17,10 @@ from .validators.lint_engine import LintEngine
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
-from services.shared.utils.monitoring import MonitoringSetup, MetricsCollector
+from services.shared.utils.monitoring import MonitoringSetup, MetricsCollector, ReadinessChecker
+from services.shared.http_client import get_http_client
+from services.shared.config import get_service_url
+from services.shared.middleware.request_context import RequestContextMiddleware
 
 
 # Configure logging
@@ -93,6 +96,9 @@ monitoring = MonitoringSetup(
 # Initialize metrics collector
 metrics = MetricsCollector("storyboard-service")
 
+# Initialize readiness checker
+readiness_checker = ReadinessChecker("storyboard-service")
+
 # Global service instances
 bullet_parser = None
 storydoc_parser = None
@@ -160,6 +166,9 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
+# Add request context middleware
+app.add_middleware(RequestContextMiddleware, service_name="storyboard-service")
+
 
 @app.get("/health")
 async def health_check():
@@ -172,6 +181,20 @@ async def health_check():
         "parsers_available": all([bullet_parser, storydoc_parser, jsonl_parser]),
         "validators_available": all([anchor_validator, coverage_calculator, lint_engine]),
     }
+
+
+@app.get("/ready")
+async def readiness_check():
+    """Readiness check endpoint."""
+    readiness_status = await readiness_checker.is_ready()
+    
+    if not readiness_status["ready"]:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=readiness_status
+        )
+    
+    return readiness_status
 
 
 @app.get("/")
@@ -489,6 +512,56 @@ async def get_case_storyboards(case_id: str, skip: int = 0, limit: int = 100):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get storyboards: {str(e)}"
+        )
+
+
+@app.post("/storyboards/{storyboard_id}/compile")
+async def compile_storyboard(storyboard_id: str, request: dict):
+    """Compile storyboard to timeline via Timeline Compiler service."""
+    try:
+        storyboard_data = request.get("storyboard_data")
+        if not storyboard_data:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="storyboard_data is required"
+            )
+        
+        # Get HTTP client
+        http_client = await get_http_client()
+        
+        # Get Timeline Compiler service URL
+        timeline_url = get_service_url("timeline")
+        
+        # Prepare compilation request
+        compile_request = {
+            "storyboard_id": storyboard_id,
+            "storyboard_data": storyboard_data,
+            "metadata": request.get("metadata", {})
+        }
+        
+        # Call Timeline Compiler service
+        response = await http_client.request_json(
+            "POST",
+            f"{timeline_url}/compile",
+            json=compile_request,
+            timeout=30
+        )
+        
+        # Record metrics
+        metrics.record_storyboard_created("storyboard_compile")
+        
+        return {
+            "status": "compiled",
+            "storyboard_id": storyboard_id,
+            "timeline_id": response.get("timeline_id"),
+            "compilation_result": response.get("result"),
+        }
+        
+    except Exception as e:
+        logger.error(f"Storyboard compilation failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Storyboard compilation failed: {str(e)}"
         )
 
 

@@ -9,7 +9,11 @@ from typing import List, Dict, Any
 import cv2
 import numpy as np
 from PIL import Image
-import pytesseract
+try:
+    import pytesseract
+    PYTESSERACT_AVAILABLE = True
+except ImportError:
+    PYTESSERACT_AVAILABLE = False
 
 from ...interfaces.ocr import OCRInterface, OCRResult, OCRConfig, OCRError, UnsupportedFormatError, LanguageNotSupportedError
 
@@ -19,6 +23,9 @@ class TesseractLocalOCR(OCRInterface):
     
     def __init__(self, config: Dict[str, Any]):
         """Initialize Tesseract local OCR."""
+        if not PYTESSERACT_AVAILABLE:
+            raise OCRError("pytesseract is not available. Please install pytesseract.")
+        
         self.tesseract_path = config.get("tesseract_path", "tesseract")
         self.tessdata_path = config.get("tessdata_path")
         self.language = config.get("language", "eng")

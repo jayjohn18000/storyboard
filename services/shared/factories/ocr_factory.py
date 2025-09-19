@@ -2,12 +2,10 @@
 
 from typing import Dict, Any, Optional
 from ..interfaces.ocr import OCRInterface, OCREngine, OCRError
-from ..interfaces.ocr import (
-    TesseractLocalOCR, 
-    TesseractDistributedOCR, 
-    OCRMyPDFAdapter, 
-    PaddleOCRAdapter
-)
+from ..implementations.ocr.tesseract_local import TesseractLocalOCR
+from ..implementations.ocr.tesseract_distributed import TesseractDistributedOCR
+from ..implementations.ocr.ocrmypdf_adapter import OCRMyPDFAdapter
+from ..implementations.ocr.paddleocr_adapter import PaddleOCRAdapter
 
 
 class OCRFactory:

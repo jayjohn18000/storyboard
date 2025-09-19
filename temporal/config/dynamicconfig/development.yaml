@@ -1,0 +1,256 @@
+# Temporal Dynamic Configuration for Development
+# This file provides dynamic configuration for Temporal server
+
+# System limits
+system.limits.maxWorkflowTaskBatchSize: 100
+system.limits.maxActivityTaskBatchSize: 100
+system.limits.maxSignalTaskBatchSize: 100
+system.limits.maxTaskQueueSize: 100000
+
+# Workflow limits
+workflow.limits.maxWorkflowExecutionTimeout: "86400s"
+workflow.limits.maxWorkflowRunTimeout: "86400s"
+workflow.limits.maxWorkflowTaskTimeout: "10s"
+workflow.limits.maxWorkflowTaskBatchSize: 100
+
+# Activity limits
+activity.limits.maxActivityExecutionTimeout: "86400s"
+activity.limits.maxActivityTaskTimeout: "10s"
+activity.limits.maxActivityTaskBatchSize: 100
+
+# Task queue limits
+taskQueue.limits.maxTaskQueueSize: 100000
+taskQueue.limits.maxTaskQueueSizePerDomain: 100000
+
+# History limits
+history.limits.maxEventsPerWorkflowExecution: 1000000
+history.limits.maxEventsPerWorkflowRun: 1000000
+history.limits.maxEventsPerActivityExecution: 1000000
+
+# Retention limits
+retention.limits.maxWorkflowExecutionRetention: "168h"
+retention.limits.maxWorkflowRunRetention: "168h"
+retention.limits.maxActivityExecutionRetention: "168h"
+
+# Archival limits
+archival.limits.maxWorkflowExecutionRetention: "720h"
+archival.limits.maxWorkflowRunRetention: "720h"
+archival.limits.maxActivityExecutionRetention: "720h"
+
+# Search attributes limits
+searchAttributes.limits.maxSearchAttributes: 100
+searchAttributes.limits.maxSearchAttributeSize: 2048
+
+# Visibility limits
+visibility.limits.maxWorkflowExecutionRetention: "168h"
+visibility.limits.maxWorkflowRunRetention: "168h"
+visibility.limits.maxActivityExecutionRetention: "168h"
+
+# Metrics limits
+metrics.limits.maxMetricsPerWorkflowExecution: 10000
+metrics.limits.maxMetricsPerWorkflowRun: 10000
+metrics.limits.maxMetricsPerActivityExecution: 10000
+
+# Logging limits
+logging.limits.maxLogEntriesPerWorkflowExecution: 10000
+logging.limits.maxLogEntriesPerWorkflowRun: 10000
+logging.limits.maxLogEntriesPerActivityExecution: 10000
+
+# Security limits
+security.limits.maxWorkflowExecutionRetention: "168h"
+security.limits.maxWorkflowRunRetention: "168h"
+security.limits.maxActivityExecutionRetention: "168h"
+
+# Performance tuning
+performance.tuning.maxConcurrentWorkflowExecutions: 1000
+performance.tuning.maxConcurrentActivityExecutions: 1000
+performance.tuning.maxConcurrentWorkflowTasks: 1000
+performance.tuning.maxConcurrentActivityTasks: 1000
+
+# Resource limits
+resource.limits.maxMemoryPerWorkflowExecution: "1GB"
+resource.limits.maxMemoryPerWorkflowRun: "1GB"
+resource.limits.maxMemoryPerActivityExecution: "1GB"
+resource.limits.maxCPUPerWorkflowExecution: "1"
+resource.limits.maxCPUPerWorkflowRun: "1"
+resource.limits.maxCPUPerActivityExecution: "1"
+
+# Network limits
+network.limits.maxWorkflowExecutionRetention: "168h"
+network.limits.maxWorkflowRunRetention: "168h"
+network.limits.maxActivityExecutionRetention: "168h"
+
+# Storage limits
+storage.limits.maxWorkflowExecutionRetention: "168h"
+storage.limits.maxWorkflowRunRetention: "168h"
+storage.limits.maxActivityExecutionRetention: "168h"
+
+# Cache limits
+cache.limits.maxWorkflowExecutionRetention: "168h"
+cache.limits.maxWorkflowRunRetention: "168h"
+cache.limits.maxActivityExecutionRetention: "168h"
+
+# Queue limits
+queue.limits.maxWorkflowExecutionRetention: "168h"
+queue.limits.maxWorkflowRunRetention: "168h"
+queue.limits.maxActivityExecutionRetention: "168h"
+
+# Scheduler limits
+scheduler.limits.maxWorkflowExecutionRetention: "168h"
+scheduler.limits.maxWorkflowRunRetention: "168h"
+scheduler.limits.maxActivityExecutionRetention: "168h"
+
+# Worker limits
+worker.limits.maxWorkflowExecutionRetention: "168h"
+worker.limits.maxWorkflowRunRetention: "168h"
+worker.limits.maxActivityExecutionRetention: "168h"
+
+# Client limits
+client.limits.maxWorkflowExecutionRetention: "168h"
+client.limits.maxWorkflowRunRetention: "168h"
+client.limits.maxActivityExecutionRetention: "168h"
+
+# Server limits
+server.limits.maxWorkflowExecutionRetention: "168h"
+server.limits.maxWorkflowRunRetention: "168h"
+server.limits.maxActivityExecutionRetention: "168h"
+
+# Cluster limits
+cluster.limits.maxWorkflowExecutionRetention: "168h"
+cluster.limits.maxWorkflowRunRetention: "168h"
+cluster.limits.maxActivityExecutionRetention: "168h"
+
+# Domain limits
+domain.limits.maxWorkflowExecutionRetention: "168h"
+domain.limits.maxWorkflowRunRetention: "168h"
+domain.limits.maxActivityExecutionRetention: "168h"
+
+# Namespace limits
+namespace.limits.maxWorkflowExecutionRetention: "168h"
+namespace.limits.maxWorkflowRunRetention: "168h"
+namespace.limits.maxActivityExecutionRetention: "168h"
+
+# Workflow limits
+workflow.limits.maxWorkflowExecutionRetention: "168h"
+workflow.limits.maxWorkflowRunRetention: "168h"
+workflow.limits.maxActivityExecutionRetention: "168h"
+
+# Activity limits
+activity.limits.maxWorkflowExecutionRetention: "168h"
+activity.limits.maxWorkflowRunRetention: "168h"
+activity.limits.maxActivityExecutionRetention: "168h"
+
+# Signal limits
+signal.limits.maxWorkflowExecutionRetention: "168h"
+signal.limits.maxWorkflowRunRetention: "168h"
+signal.limits.maxActivityExecutionRetention: "168h"
+
+# Query limits
+query.limits.maxWorkflowExecutionRetention: "168h"
+query.limits.maxWorkflowRunRetention: "168h"
+query.limits.maxActivityExecutionRetention: "168h"
+
+# Timer limits
+timer.limits.maxWorkflowExecutionRetention: "168h"
+timer.limits.maxWorkflowRunRetention: "168h"
+timer.limits.maxActivityExecutionRetention: "168h"
+
+# Child workflow limits
+childWorkflow.limits.maxWorkflowExecutionRetention: "168h"
+childWorkflow.limits.maxWorkflowRunRetention: "168h"
+childWorkflow.limits.maxActivityExecutionRetention: "168h"
+
+# External workflow limits
+externalWorkflow.limits.maxWorkflowExecutionRetention: "168h"
+externalWorkflow.limits.maxWorkflowRunRetention: "168h"
+externalWorkflow.limits.maxActivityExecutionRetention: "168h"
+
+# Continue as new limits
+continueAsNew.limits.maxWorkflowExecutionRetention: "168h"
+continueAsNew.limits.maxWorkflowRunRetention: "168h"
+continueAsNew.limits.maxActivityExecutionRetention: "168h"
+
+# Retry limits
+retry.limits.maxWorkflowExecutionRetention: "168h"
+retry.limits.maxWorkflowRunRetention: "168h"
+retry.limits.maxActivityExecutionRetention: "168h"
+
+# Timeout limits
+timeout.limits.maxWorkflowExecutionRetention: "168h"
+timeout.limits.maxWorkflowRunRetention: "168h"
+timeout.limits.maxActivityExecutionRetention: "168h"
+
+# Error limits
+error.limits.maxWorkflowExecutionRetention: "168h"
+error.limits.maxWorkflowRunRetention: "168h"
+error.limits.maxActivityExecutionRetention: "168h"
+
+# Completion limits
+completion.limits.maxWorkflowExecutionRetention: "168h"
+completion.limits.maxWorkflowRunRetention: "168h"
+completion.limits.maxActivityExecutionRetention: "168h"
+
+# Cancellation limits
+cancellation.limits.maxWorkflowExecutionRetention: "168h"
+cancellation.limits.maxWorkflowRunRetention: "168h"
+cancellation.limits.maxActivityExecutionRetention: "168h"
+
+# Termination limits
+termination.limits.maxWorkflowExecutionRetention: "168h"
+termination.limits.maxWorkflowRunRetention: "168h"
+termination.limits.maxActivityExecutionRetention: "168h"
+
+# Failure limits
+failure.limits.maxWorkflowExecutionRetention: "168h"
+failure.limits.maxWorkflowRunRetention: "168h"
+failure.limits.maxActivityExecutionRetention: "168h"
+
+# Success limits
+success.limits.maxWorkflowExecutionRetention: "168h"
+success.limits.maxWorkflowRunRetention: "168h"
+success.limits.maxActivityExecutionRetention: "168h"
+
+# Pending limits
+pending.limits.maxWorkflowExecutionRetention: "168h"
+pending.limits.maxWorkflowRunRetention: "168h"
+pending.limits.maxActivityExecutionRetention: "168h"
+
+# Running limits
+running.limits.maxWorkflowExecutionRetention: "168h"
+running.limits.maxWorkflowRunRetention: "168h"
+running.limits.maxActivityExecutionRetention: "168h"
+
+# Completed limits
+completed.limits.maxWorkflowExecutionRetention: "168h"
+completed.limits.maxWorkflowRunRetention: "168h"
+completed.limits.maxActivityExecutionRetention: "168h"
+
+# Failed limits
+failed.limits.maxWorkflowExecutionRetention: "168h"
+failed.limits.maxWorkflowRunRetention: "168h"
+failed.limits.maxActivityExecutionRetention: "168h"
+
+# Canceled limits
+canceled.limits.maxWorkflowExecutionRetention: "168h"
+canceled.limits.maxWorkflowRunRetention: "168h"
+canceled.limits.maxActivityExecutionRetention: "168h"
+
+# Terminated limits
+terminated.limits.maxWorkflowExecutionRetention: "168h"
+terminated.limits.maxWorkflowRunRetention: "168h"
+terminated.limits.maxActivityExecutionRetention: "168h"
+
+# Continued as new limits
+continuedAsNew.limits.maxWorkflowExecutionRetention: "168h"
+continuedAsNew.limits.maxWorkflowRunRetention: "168h"
+continuedAsNew.limits.maxActivityExecutionRetention: "168h"
+
+# Timed out limits
+timedOut.limits.maxWorkflowExecutionRetention: "168h"
+timedOut.limits.maxWorkflowRunRetention: "168h"
+timedOut.limits.maxActivityExecutionRetention: "168h"
+
+# Unknown limits
+unknown.limits.maxWorkflowExecutionRetention: "168h"
+unknown.limits.maxWorkflowRunRetention: "168h"
+unknown.limits.maxActivityExecutionRetention: "168h"

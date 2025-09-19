@@ -11,6 +11,11 @@ help:
 	@echo "  make down        - Stop all services"
 	@echo "  make clean       - Clean up containers, volumes, and temporary files"
 	@echo ""
+	@echo "AI Agent Services:"
+	@echo "  make ai-agent-worker - Start AI Agent Temporal Worker"
+	@echo "  make event-bridge    - Start Temporal Event Bridge"
+	@echo "  make ai-services     - Start all AI agent services"
+	@echo ""
 	@echo "Code Quality:"
 	@echo "  make format      - Format code with black and isort"
 	@echo "  make lint        - Run linting with flake8 and mypy"
@@ -124,6 +129,18 @@ timeline-compiler:
 render-orchestrator:
 	@echo "Starting Render Orchestrator service..."
 	cd services/render-orchestrator && python main.py
+
+# AI Agent services
+ai-agent-worker:
+	@echo "Starting AI Agent Temporal Worker..."
+	python scripts/start_ai_agent_worker.py
+
+event-bridge:
+	@echo "Starting Temporal Event Bridge..."
+	python scripts/start_event_bridge.py
+
+ai-services: ai-agent-worker event-bridge
+	@echo "Starting all AI agent services..."
 
 # Health checks
 health:

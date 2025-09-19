@@ -106,6 +106,17 @@ export const evidenceApi = createApi({
         body: { checksum },
       }),
     }),
+    downloadEvidence: builder.query<Blob, string>({
+      query: (id) => ({
+        url: `/${id}/download`,
+        responseHandler: 'content-type',
+      }),
+      providesTags: (result, error, id) => [{ type: 'Evidence', id }],
+    }),
+    getChainOfCustody: builder.query<Array<{action: string; actor: string; timestamp: string; metadata?: any}>, string>({
+      query: (id) => `/${id}/chain-of-custody`,
+      providesTags: (result, error, id) => [{ type: 'Evidence', id }],
+    }),
   }),
 });
 
@@ -116,4 +127,6 @@ export const {
   useUpdateEvidenceMutation,
   useDeleteEvidenceMutation,
   useVerifyChecksumMutation,
+  useDownloadEvidenceQuery,
+  useGetChainOfCustodyQuery,
 } = evidenceApi;

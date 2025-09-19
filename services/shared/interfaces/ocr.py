@@ -104,8 +104,9 @@ class LanguageNotSupportedError(OCRError):
     pass
 
 
-# Import concrete implementations
-from ..implementations.ocr.tesseract_local import TesseractLocalOCR
-from ..implementations.ocr.tesseract_distributed import TesseractDistributedOCR
-from ..implementations.ocr.ocrmypdf_adapter import OCRMyPDFAdapter
-from ..implementations.ocr.paddleocr_adapter import PaddleOCRAdapter
+class TranscriptionError(OCRError):
+    """Raised when transcription fails."""
+    pass
+
+
+# Concrete implementations are imported where needed to avoid circular imports

@@ -118,8 +118,4 @@ class TranscriptionError(ASRError):
     pass
 
 
-# Import concrete implementations
-from ..implementations.asr.whisperx_local import WhisperXLocalASR
-from ..implementations.asr.whisperx_gpu import WhisperXGPUASR
-from ..implementations.asr.whisperx_distributed import WhisperXDistributedASR
-from ..implementations.asr.pyannote_diarizer import PyAnnoteDiarizerASR
+# Concrete implementations are imported where needed to avoid circular imports

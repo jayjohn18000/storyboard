@@ -5,7 +5,11 @@ import time
 from typing import List, Dict, Any
 import cv2
 import numpy as np
-from paddleocr import PaddleOCR
+try:
+    from paddleocr import PaddleOCR
+    PADDLEOCR_AVAILABLE = True
+except ImportError:
+    PADDLEOCR_AVAILABLE = False
 
 from ...interfaces.ocr import OCRInterface, OCRResult, OCRConfig, OCRError, UnsupportedFormatError
 
@@ -15,6 +19,9 @@ class PaddleOCRAdapter(OCRInterface):
     
     def __init__(self, config: Dict[str, Any]):
         """Initialize PaddleOCR adapter."""
+        if not PADDLEOCR_AVAILABLE:
+            raise OCRError("PaddleOCR is not available. Please install paddleocr.")
+        
         self.language = config.get("language", "en")
         self.confidence_threshold = config.get("confidence_threshold", 0.7)
         self.use_gpu = config.get("use_gpu", False)

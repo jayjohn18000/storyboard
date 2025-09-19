@@ -1,5 +1,5 @@
 import React from 'react';
-import { EvidenceUploader } from '../../../../shared/components/evidence/EvidenceUploader';
+import { EvidenceUploader } from '../../shared/components/evidence/EvidenceUploader';
 
 export const EvidencePage: React.FC = () => {
   const handleUploadComplete = (files: any[]) => {

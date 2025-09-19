@@ -2,12 +2,10 @@
 
 from typing import Dict, Any, Optional
 from ..interfaces.asr import ASRInterface, ASREngine, ASRError
-from ..interfaces.asr import (
-    WhisperXLocalASR, 
-    WhisperXGPUASR, 
-    WhisperXDistributedASR, 
-    PyAnnoteDiarizerASR
-)
+from ..implementations.asr.whisperx_local import WhisperXLocalASR
+from ..implementations.asr.whisperx_gpu import WhisperXGPUASR
+from ..implementations.asr.whisperx_distributed import WhisperXDistributedASR
+from ..implementations.asr.pyannote_diarizer import PyAnnoteDiarizerASR
 
 
 class ASRFactory:

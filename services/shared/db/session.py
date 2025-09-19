@@ -9,7 +9,17 @@ import os
 import logging
 from typing import AsyncGenerator
 from contextlib import asynccontextmanager
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+try:
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+except ImportError:
+    # Fallback for older SQLAlchemy versions
+    from sqlalchemy.ext.asyncio import AsyncSession as AsyncSessionClass
+    from sqlalchemy.orm import sessionmaker
+    
+    def async_sessionmaker(bind=None, class_=None, **kwargs):
+        """Fallback async_sessionmaker for older SQLAlchemy versions."""
+        return sessionmaker(bind=bind, class_=class_, **kwargs)
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.pool import NullPool
 from sqlalchemy import event

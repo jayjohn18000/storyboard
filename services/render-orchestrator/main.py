@@ -11,7 +11,12 @@ import uvicorn
 from .implementations.blender.local_renderer import BlenderLocalRenderer
 from .implementations.blender.determinism import DeterminismManager, DeterminismTestSuite
 from ..shared.interfaces.renderer import RenderConfig, RenderProfile, RenderEngine, SceneData
-from ..shared.utils.monitoring import MonitoringSetup, MetricsCollector
+from ..shared.utils.monitoring import MonitoringSetup, MetricsCollector, ReadinessChecker
+from ..shared.events.event_factory import EventFactory
+from ..shared.implementations.event_bus.redis_event_bus import get_event_bus
+from ..shared.interfaces.event_bus import EventType
+from ..shared.middleware.request_context import RequestContextMiddleware
+import uuid
 
 
 # Configure logging
@@ -27,10 +32,109 @@ monitoring = MonitoringSetup(
 # Initialize metrics collector
 metrics = MetricsCollector("render-orchestrator")
 
+# Initialize readiness checker
+readiness_checker = ReadinessChecker("render-orchestrator")
+
 # Global service instances
 renderer = None
 determinism_manager = None
 determinism_test_suite = None
+
+
+async def handle_timeline_compiled(event):
+    """Handle TimelineCompiled event by starting render job."""
+    try:
+        timeline_id = event.data.get("timeline_id")
+        storyboard_id = event.data.get("storyboard_id")
+        compilation_results = event.data.get("compilation_results", {})
+        
+        logger.info(f"Received TimelineCompiled event for timeline {timeline_id}")
+        
+        # Generate render ID
+        render_id = str(uuid.uuid4())
+        
+        # Create render job record (in a real implementation, this would be stored in database)
+        render_job = {
+            "render_id": render_id,
+            "timeline_id": timeline_id,
+            "storyboard_id": storyboard_id,
+            "status": "queued",
+            "created_at": event.timestamp,
+            "compilation_results": compilation_results
+        }
+        
+        # Store render job globally
+        render_jobs[render_id] = render_job
+        
+        # Start render job (simplified - in real implementation this would be queued)
+        try:
+            # Extract scene data from compilation results
+            scene_data = SceneData(
+                usd_data=compilation_results.get("usd_data", b""),
+                timeline_data=compilation_results.get("timeline_data", b""),
+                camera_path=compilation_results.get("camera_path", []),
+                lighting_config=compilation_results.get("lighting_config", {}),
+                materials=compilation_results.get("materials", [])
+            )
+            
+            # Create render config
+            config = RenderConfig(
+                width=1920,
+                height=1080,
+                fps=30,
+                duration_seconds=10.0,
+                profile=RenderProfile("neutral"),
+                engine=RenderEngine("blender_local"),
+                deterministic=True,
+                seed=42,
+                output_format="mp4",
+                quality="high"
+            )
+            
+            # Update render job status
+            render_job["status"] = "rendering"
+            
+            # Render scene
+            result = await renderer.render_scene(scene_data, config)
+            
+            # Update render job status
+            render_job["status"] = "completed"
+            render_job["output_path"] = result.get("output_path", "")
+            render_job["file_size"] = result.get("file_size", 0)
+            render_job["render_time_ms"] = result.get("render_time_ms", 0)
+            
+            # Publish RenderCompleted event
+            event_bus = await get_event_bus()
+            render_completed_event = EventFactory.create_render_completed(
+                render_id=render_id,
+                storyboard_id=storyboard_id,
+                output_path=render_job["output_path"],
+                file_size=render_job["file_size"],
+                render_time_ms=render_job["render_time_ms"]
+            )
+            await event_bus.publish(render_completed_event)
+            
+            logger.info(f"Completed render job {render_id} for timeline {timeline_id}")
+            
+        except Exception as e:
+            logger.error(f"Render job {render_id} failed: {e}")
+            render_job["status"] = "failed"
+            render_job["error_message"] = str(e)
+            
+            # Publish RenderFailed event
+            try:
+                event_bus = await get_event_bus()
+                render_failed_event = EventFactory.create_render_failed(
+                    render_id=render_id,
+                    storyboard_id=storyboard_id,
+                    error_message=str(e)
+                )
+                await event_bus.publish(render_failed_event)
+            except Exception as publish_error:
+                logger.error(f"Failed to publish RenderFailed event: {publish_error}")
+        
+    except Exception as e:
+        logger.error(f"Error handling TimelineCompiled event: {e}")
 
 
 @asynccontextmanager
@@ -63,6 +167,15 @@ async def lifespan(app: FastAPI):
         determinism_test_suite = DeterminismTestSuite(determinism_manager)
         logger.info("Determinism manager initialized")
         
+        # Initialize event bus and subscribe to TimelineCompiled events
+        try:
+            event_bus = await get_event_bus()
+            await event_bus.subscribe(EventType.TIMELINE_COMPILED, handle_timeline_compiled)
+            logger.info("Subscribed to TimelineCompiled events")
+        except Exception as e:
+            logger.error(f"Failed to initialize event bus: {e}")
+            # Don't fail startup if event bus fails
+        
         logger.info("Render Orchestrator Service started successfully")
         
     except Exception as e:
@@ -83,6 +196,9 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Add request context middleware
+app.add_middleware(RequestContextMiddleware, service_name="render-orchestrator")
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -102,6 +218,20 @@ async def health_check():
         "service": "render-orchestrator", 
         "time": datetime.utcnow().isoformat() + "Z"
     }
+
+
+@app.get("/ready")
+async def readiness_check():
+    """Readiness check endpoint."""
+    readiness_status = await readiness_checker.is_ready()
+    
+    if not readiness_status["ready"]:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=readiness_status
+        )
+    
+    return readiness_status
 
 
 @app.get("/")
@@ -328,6 +458,78 @@ async def get_render_profiles():
             }
         ]
     }
+
+
+# In-memory storage for render jobs (in production, this would be a database)
+render_jobs = {}
+
+
+@app.get("/renders/{render_id}")
+async def get_render(render_id: str):
+    """Get render job details by ID."""
+    try:
+        if render_id not in render_jobs:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Render job not found"
+            )
+        
+        render_job = render_jobs[render_id]
+        
+        return {
+            "render_id": render_id,
+            "timeline_id": render_job.get("timeline_id"),
+            "storyboard_id": render_job.get("storyboard_id"),
+            "status": render_job.get("status"),
+            "created_at": render_job.get("created_at"),
+            "output_path": render_job.get("output_path"),
+            "file_size": render_job.get("file_size"),
+            "render_time_ms": render_job.get("render_time_ms"),
+            "error_message": render_job.get("error_message")
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get render {render_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get render: {str(e)}"
+        )
+
+
+@app.get("/cases/{case_id}/renders")
+async def get_case_renders(case_id: str):
+    """Get all renders for a case."""
+    try:
+        # Filter renders by case_id (in production, this would be a database query)
+        case_renders = [
+            {
+                "render_id": render_id,
+                "timeline_id": job.get("timeline_id"),
+                "storyboard_id": job.get("storyboard_id"),
+                "status": job.get("status"),
+                "created_at": job.get("created_at"),
+                "output_path": job.get("output_path"),
+                "file_size": job.get("file_size"),
+                "render_time_ms": job.get("render_time_ms")
+            }
+            for render_id, job in render_jobs.items()
+            if job.get("case_id") == case_id
+        ]
+        
+        return {
+            "case_id": case_id,
+            "renders": case_renders,
+            "total_count": len(case_renders)
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get renders for case {case_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get case renders: {str(e)}"
+        )
 
 
 if __name__ == "__main__":

@@ -1,0 +1,101 @@
+apiVersion: api.cerbos.dev/v1
+
+resourcePolicy:
+  version: "default"
+  resource: "case"
+  rules:
+    - actions: ["create", "read", "update", "delete"]
+      effect: EFFECT_ALLOW
+      roles: ["admin", "attorney", "paralegal"]
+    - actions: ["read"]
+      effect: EFFECT_ALLOW
+      roles: ["viewer", "court_clerk"]
+
+resourcePolicy:
+  version: "default"
+  resource: "evidence"
+  rules:
+    - actions: ["create", "read", "update", "delete"]
+      effect: EFFECT_ALLOW
+      roles: ["admin", "evidence_specialist", "attorney"]
+    - actions: ["read"]
+      effect: EFFECT_ALLOW
+      roles: ["paralegal", "viewer", "court_clerk"]
+    - actions: ["commit", "lock"]
+      effect: EFFECT_ALLOW
+      roles: ["admin", "evidence_specialist"]
+
+resourcePolicy:
+  version: "default"
+  resource: "storyboard"
+  rules:
+    - actions: ["create", "read", "update", "delete"]
+      effect: EFFECT_ALLOW
+      roles: ["admin", "attorney", "paralegal"]
+    - actions: ["read"]
+      effect: EFFECT_ALLOW
+      roles: ["viewer", "court_clerk"]
+    - actions: ["validate", "lint"]
+      effect: EFFECT_ALLOW
+      roles: ["admin", "attorney", "paralegal", "evidence_specialist"]
+
+resourcePolicy:
+  version: "default"
+  resource: "render"
+  rules:
+    - actions: ["create", "read", "update", "delete"]
+      effect: EFFECT_ALLOW
+      roles: ["admin", "attorney", "paralegal"]
+    - actions: ["read"]
+      effect: EFFECT_ALLOW
+      roles: ["viewer", "court_clerk"]
+    - actions: ["start", "stop", "monitor"]
+      effect: EFFECT_ALLOW
+      roles: ["admin", "render_specialist"]
+
+resourcePolicy:
+  version: "default"
+  resource: "export"
+  rules:
+    - actions: ["create", "read", "update", "delete"]
+      effect: EFFECT_ALLOW
+      roles: ["admin", "attorney"]
+    - actions: ["read"]
+      effect: EFFECT_ALLOW
+      roles: ["paralegal", "viewer", "court_clerk"]
+    - actions: ["download", "export"]
+      effect: EFFECT_ALLOW
+      roles: ["admin", "attorney", "court_clerk"]
+
+resourcePolicy:
+  version: "default"
+  resource: "user"
+  rules:
+    - actions: ["create", "read", "update", "delete"]
+      effect: EFFECT_ALLOW
+      roles: ["admin"]
+    - actions: ["read", "update"]
+      effect: EFFECT_ALLOW
+      roles: ["attorney", "paralegal"]
+
+resourcePolicy:
+  version: "default"
+  resource: "audit_log"
+  rules:
+    - actions: ["read"]
+      effect: EFFECT_ALLOW
+      roles: ["admin", "court_clerk"]
+    - actions: ["create"]
+      effect: EFFECT_ALLOW
+      roles: ["admin", "attorney", "paralegal", "evidence_specialist"]
+
+resourcePolicy:
+  version: "default"
+  resource: "system_config"
+  rules:
+    - actions: ["read", "update"]
+      effect: EFFECT_ALLOW
+      roles: ["admin"]
+    - actions: ["read"]
+      effect: EFFECT_ALLOW
+      roles: ["attorney", "paralegal"]

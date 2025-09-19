@@ -9,6 +9,7 @@ import {
   ExclamationTriangleIcon,
   XMarkIcon
 } from '@heroicons/react/24/outline';
+import { useUploadEvidenceMutation } from '../../../store/api/evidenceApi';
 
 interface EvidenceFile {
   id: string;
@@ -47,6 +48,7 @@ export const EvidenceUploader: React.FC<EvidenceUploaderProps> = ({
   const [files, setFiles] = useState<EvidenceFile[]>([]);
   const [isCalculatingHash, setIsCalculatingHash] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadEvidence] = useUploadEvidenceMutation();
 
   const calculateSHA256 = async (file: File): Promise<string> => {
     const buffer = await file.arrayBuffer();
@@ -104,27 +106,13 @@ export const EvidenceUploader: React.FC<EvidenceUploaderProps> = ({
 
   const uploadFile = async (file: EvidenceFile) => {
     try {
-      // Create FormData for upload
-      const formData = new FormData();
-      formData.append('file', file.file);
-      if (file.metadata?.caseId) formData.append('caseId', file.metadata.caseId);
-      if (file.metadata?.description) formData.append('description', file.metadata.description);
-      if (file.metadata?.chainOfCustody) formData.append('chainOfCustody', JSON.stringify(file.metadata.chainOfCustody));
-
-      // Upload with progress tracking
-      const response = await fetch('/api/v1/evidence/upload', {
-        method: 'POST',
-        body: formData,
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('legal-sim-token')}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Upload failed: ${response.statusText}`);
-      }
-
-      const result = await response.json();
+      // Use RTK Query mutation for upload
+      const result = await uploadEvidence({
+        file: file.file,
+        caseId: file.metadata?.caseId,
+        description: file.metadata?.description,
+        chainOfCustody: file.metadata?.chainOfCustody,
+      }).unwrap();
       
       // Update file status
       setFiles(prev => prev.map(f => 

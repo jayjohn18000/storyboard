@@ -172,7 +172,7 @@ class ChainOfCustody(Base):
     action = Column(String(100), nullable=False)
     actor = Column(String(255), nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
-    metadata = Column(JSON, default={})
+    metadata_json = Column("metadata", JSON, default={})
     ip_address = Column(String(45))  # IPv6 compatible
     user_agent = Column(Text)
     

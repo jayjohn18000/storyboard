@@ -8,9 +8,12 @@ import logging
 from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .db.session import get_db as new_get_db, init_database as new_init_database, close_database as new_close_database
+from .db.session import get_db as new_get_db, init_database as new_init_database, close_database as new_close_database, Base
 
 logger = logging.getLogger(__name__)
+
+# Re-export Base for backward compatibility
+__all__ = ["Base", "init_database", "get_db_session", "close_database"]
 
 # Re-export functions for backward compatibility
 async def init_database():

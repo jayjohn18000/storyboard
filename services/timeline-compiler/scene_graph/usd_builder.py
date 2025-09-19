@@ -1,471 +1,353 @@
-"""USD scene graph builder."""
+"""USD (Universal Scene Description) builder for legal simulation scenes."""
 
-import time
-from typing import Dict, Any, List
-import json
+import os
+import tempfile
+from typing import List, Dict, Any, Optional, Tuple
+from dataclasses import dataclass
+from enum import Enum
+
+
+class USDStageType(Enum):
+    """Types of USD stages."""
+    OVER = "over"
+    DEF = "def"
+    CLASS = "class"
+    INSTANCE = "instance"
+
+
+class USDDataType(Enum):
+    """USD data types."""
+    FLOAT = "float"
+    DOUBLE = "double"
+    INT = "int"
+    STRING = "string"
+    BOOL = "bool"
+    VECTOR3F = "vector3f"
+    VECTOR3D = "vector3d"
+    MATRIX4D = "matrix4d"
+    QUATERNIONF = "quaternionf"
+    QUATERNIOND = "quaterniond"
+
+
+@dataclass
+class USDAttribute:
+    """USD attribute definition."""
+    name: str
+    data_type: USDDataType
+    value: Any
+    variability: str = "varying"  # varying, uniform, constant
+    custom: bool = False
+
+
+@dataclass
+class USDObject:
+    """USD object definition."""
+    path: str
+    object_type: str  # Xform, Mesh, Camera, Light, etc.
+    attributes: List[USDAttribute]
+    children: List['USDObject']
+    stage_type: USDStageType = USDStageType.DEF
+
+
+@dataclass
+class USDStage:
+    """USD stage definition."""
+    name: str
+    objects: List[USDObject]
+    metadata: Dict[str, Any]
 
 
 class USDBuilder:
-    """Builder for USD scene graphs."""
+    """Builder for USD scene files."""
     
     def __init__(self):
-        self.default_resolution = (1920, 1080)
-        self.default_fps = 30.0
+        self.stage = None
+        self.current_path = ""
+        self.indent_level = 0
     
-    async def build_scene_graph(self, timeline_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Build USD scene graph from timeline."""
-        try:
-            start_time = time.time()
-            
-            # Parse timeline
-            timeline = self._parse_timeline(timeline_data)
-            
-            # Build scene graph
-            scene_graph = await self._build_scene_graph(timeline)
-            
-            # Validate scene graph
-            validation_results = self._validate_scene_graph(scene_graph)
-            
-            # Convert to USD format
-            usd_data = self._convert_to_usd(scene_graph)
-            
-            processing_time_ms = int((time.time() - start_time) * 1000)
-            
-            return {
-                "scene_graph": scene_graph,
-                "usd_data": usd_data,
-                "validation_results": validation_results,
-                "processing_time_ms": processing_time_ms,
-            }
-            
-        except Exception as e:
-            raise Exception(f"Scene graph building failed: {str(e)}")
+    def create_stage(self, name: str) -> 'USDBuilder':
+        """Create a new USD stage."""
+        self.stage = USDStage(name=name, objects=[], metadata={})
+        return self
     
-    def _parse_timeline(self, timeline_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Parse timeline data."""
-        return {
-            "name": timeline_data.get("name", "Timeline"),
-            "metadata": timeline_data.get("metadata", {}),
-            "tracks": timeline_data.get("tracks", []),
-        }
+    def add_metadata(self, key: str, value: Any) -> 'USDBuilder':
+        """Add metadata to the stage."""
+        if self.stage:
+            self.stage.metadata[key] = value
+        return self
     
-    async def _build_scene_graph(self, timeline: Dict[str, Any]) -> Dict[str, Any]:
-        """Build scene graph from timeline."""
-        try:
-            # Create root scene graph
-            scene_graph = {
-                "name": timeline["name"],
-                "metadata": timeline["metadata"],
-                "resolution": self.default_resolution,
-                "fps": self.default_fps,
-                "duration": 0.0,
-                "scenes": [],
-                "cameras": [],
-                "lights": [],
-                "materials": [],
-                "objects": [],
-            }
-            
-            # Process tracks
-            for track in timeline["tracks"]:
-                await self._process_track(track, scene_graph)
-            
-            # Calculate total duration
-            scene_graph["duration"] = max(
-                scene.get("end_time", 0.0) for scene in scene_graph["scenes"]
-            ) if scene_graph["scenes"] else 0.0
-            
-            return scene_graph
-            
-        except Exception as e:
-            raise Exception(f"Failed to build scene graph: {str(e)}")
-    
-    async def _process_track(self, track: Dict[str, Any], scene_graph: Dict[str, Any]):
-        """Process track and add to scene graph."""
-        try:
-            track_name = track.get("name", "Track")
-            track_kind = track.get("kind", "Video")
-            
-            # Process clips in track
-            for clip in track.get("clips", []):
-                await self._process_clip(clip, scene_graph, track_name, track_kind)
-            
-        except Exception as e:
-            print(f"Failed to process track: {e}")
-    
-    async def _process_clip(self, clip: Dict[str, Any], scene_graph: Dict[str, Any], track_name: str, track_kind: str):
-        """Process clip and add to scene graph."""
-        try:
-            clip_type = clip.get("type", "clip")
-            clip_name = clip.get("name", "Clip")
-            
-            if clip_type == "scene":
-                await self._process_scene_clip(clip, scene_graph)
-            elif clip_type == "evidence":
-                await self._process_evidence_clip(clip, scene_graph)
-            elif clip_type == "transition":
-                await self._process_transition_clip(clip, scene_graph)
-            elif clip_type == "audio":
-                await self._process_audio_clip(clip, scene_graph)
-            elif clip_type == "text_overlay":
-                await self._process_text_overlay_clip(clip, scene_graph)
-            elif clip_type == "caption":
-                await self._process_caption_clip(clip, scene_graph)
-            
-        except Exception as e:
-            print(f"Failed to process clip {clip.get('name', 'Unknown')}: {e}")
-    
-    async def _process_scene_clip(self, clip: Dict[str, Any], scene_graph: Dict[str, Any]):
-        """Process scene clip."""
-        try:
-            # Extract scene information
-            scene_info = {
-                "id": clip.get("scene_id", ""),
-                "name": clip.get("name", ""),
-                "type": clip.get("scene_type", "evidence_display"),
-                "duration": clip.get("duration_seconds", 0.0),
-                "start_time": clip.get("start_time", 0.0),
-                "end_time": clip.get("start_time", 0.0) + clip.get("duration_seconds", 0.0),
-                "camera_config": clip.get("media_reference", {}).get("metadata", {}).get("camera_config", {}),
-                "lighting_config": clip.get("media_reference", {}).get("metadata", {}).get("lighting_config", {}),
-                "materials": clip.get("media_reference", {}).get("metadata", {}).get("materials", []),
-            }
-            
-            # Add scene to scene graph
-            scene_graph["scenes"].append(scene_info)
-            
-            # Add camera if configured
-            if scene_info["camera_config"]:
-                camera = await self._create_camera(scene_info)
-                scene_graph["cameras"].append(camera)
-            
-            # Add lights if configured
-            if scene_info["lighting_config"]:
-                lights = await self._create_lights(scene_info)
-                scene_graph["lights"].extend(lights)
-            
-            # Add materials if configured
-            if scene_info["materials"]:
-                for material in scene_info["materials"]:
-                    material_obj = await self._create_material(material)
-                    scene_graph["materials"].append(material_obj)
-            
-        except Exception as e:
-            print(f"Failed to process scene clip: {e}")
-    
-    async def _process_evidence_clip(self, clip: Dict[str, Any], scene_graph: Dict[str, Any]):
-        """Process evidence clip."""
-        try:
-            # Extract evidence information
-            evidence_info = {
-                "id": clip.get("evidence_id", ""),
-                "name": clip.get("name", ""),
-                "type": clip.get("evidence_type", "unknown"),
-                "duration": clip.get("duration_seconds", 0.0),
-                "start_time": clip.get("start_time", 0.0),
-                "end_time": clip.get("start_time", 0.0) + clip.get("duration_seconds", 0.0),
-                "confidence": clip.get("metadata", {}).get("confidence", 1.0),
-                "description": clip.get("media_reference", {}).get("metadata", {}).get("description", ""),
-            }
-            
-            # Create evidence object
-            evidence_obj = await self._create_evidence_object(evidence_info)
-            scene_graph["objects"].append(evidence_obj)
-            
-        except Exception as e:
-            print(f"Failed to process evidence clip: {e}")
-    
-    async def _process_transition_clip(self, clip: Dict[str, Any], scene_graph: Dict[str, Any]):
-        """Process transition clip."""
-        try:
-            # Extract transition information
-            transition_info = {
-                "name": clip.get("name", ""),
-                "type": clip.get("transition_type", "fade"),
-                "duration": clip.get("duration_seconds", 0.0),
-                "start_time": clip.get("start_time", 0.0),
-                "end_time": clip.get("start_time", 0.0) + clip.get("duration_seconds", 0.0),
-                "config": clip.get("media_reference", {}).get("metadata", {}).get("config", {}),
-            }
-            
-            # Add transition to scene graph
-            scene_graph["transitions"] = scene_graph.get("transitions", [])
-            scene_graph["transitions"].append(transition_info)
-            
-        except Exception as e:
-            print(f"Failed to process transition clip: {e}")
-    
-    async def _process_audio_clip(self, clip: Dict[str, Any], scene_graph: Dict[str, Any]):
-        """Process audio clip."""
-        try:
-            # Extract audio information
-            audio_info = {
-                "id": clip.get("scene_id", ""),
-                "name": clip.get("name", ""),
-                "duration": clip.get("duration_seconds", 0.0),
-                "start_time": clip.get("start_time", 0.0),
-                "end_time": clip.get("start_time", 0.0) + clip.get("duration_seconds", 0.0),
-            }
-            
-            # Add audio to scene graph
-            scene_graph["audio"] = scene_graph.get("audio", [])
-            scene_graph["audio"].append(audio_info)
-            
-        except Exception as e:
-            print(f"Failed to process audio clip: {e}")
-    
-    async def _process_text_overlay_clip(self, clip: Dict[str, Any], scene_graph: Dict[str, Any]):
-        """Process text overlay clip."""
-        try:
-            # Extract text overlay information
-            text_info = {
-                "name": clip.get("name", ""),
-                "text": clip.get("media_reference", {}).get("metadata", {}).get("text", ""),
-                "position": clip.get("media_reference", {}).get("metadata", {}).get("position", "center"),
-                "style": clip.get("media_reference", {}).get("metadata", {}).get("style", {}),
-                "duration": clip.get("duration_seconds", 0.0),
-                "start_time": clip.get("start_time", 0.0),
-                "end_time": clip.get("start_time", 0.0) + clip.get("duration_seconds", 0.0),
-            }
-            
-            # Add text overlay to scene graph
-            scene_graph["text_overlays"] = scene_graph.get("text_overlays", [])
-            scene_graph["text_overlays"].append(text_info)
-            
-        except Exception as e:
-            print(f"Failed to process text overlay clip: {e}")
-    
-    async def _process_caption_clip(self, clip: Dict[str, Any], scene_graph: Dict[str, Any]):
-        """Process caption clip."""
-        try:
-            # Extract caption information
-            caption_info = {
-                "name": clip.get("name", ""),
-                "text": clip.get("media_reference", {}).get("metadata", {}).get("text", ""),
-                "speaker": clip.get("media_reference", {}).get("metadata", {}).get("speaker", ""),
-                "confidence": clip.get("media_reference", {}).get("metadata", {}).get("confidence", 1.0),
-                "duration": clip.get("duration_seconds", 0.0),
-                "start_time": clip.get("start_time", 0.0),
-                "end_time": clip.get("start_time", 0.0) + clip.get("duration_seconds", 0.0),
-            }
-            
-            # Add caption to scene graph
-            scene_graph["captions"] = scene_graph.get("captions", [])
-            scene_graph["captions"].append(caption_info)
-            
-        except Exception as e:
-            print(f"Failed to process caption clip: {e}")
-    
-    async def _create_camera(self, scene_info: Dict[str, Any]) -> Dict[str, Any]:
-        """Create camera object."""
-        camera_config = scene_info["camera_config"]
+    def add_object(
+        self, 
+        path: str, 
+        object_type: str, 
+        attributes: Optional[List[USDAttribute]] = None,
+        stage_type: USDStageType = USDStageType.DEF
+    ) -> 'USDBuilder':
+        """Add an object to the stage."""
+        if not self.stage:
+            raise ValueError("No stage created. Call create_stage() first.")
         
-        return {
-            "name": f"Camera_{scene_info['id']}",
-            "type": "perspective",
-            "position": camera_config.get("position", [0, 0, 5]),
-            "rotation": camera_config.get("rotation", [0, 0, 0]),
-            "focal_length": camera_config.get("focal_length", 50.0),
-            "fov": camera_config.get("fov", 45.0),
-            "zoom": camera_config.get("zoom", 1.0),
-            "scene_id": scene_info["id"],
-            "start_time": scene_info["start_time"],
-            "end_time": scene_info["end_time"],
-        }
-    
-    async def _create_lights(self, scene_info: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Create light objects."""
-        lights = []
-        lighting_config = scene_info["lighting_config"]
+        obj = USDObject(
+            path=path,
+            object_type=object_type,
+            attributes=attributes or [],
+            children=[],
+            stage_type=stage_type
+        )
         
-        # Create main light
-        main_light = {
-            "name": f"MainLight_{scene_info['id']}",
-            "type": lighting_config.get("type", "directional"),
-            "position": lighting_config.get("position", [0, 10, 0]),
-            "rotation": lighting_config.get("rotation", [0, 0, 0]),
-            "brightness": lighting_config.get("brightness", 1.0),
-            "color": lighting_config.get("color", [1, 1, 1]),
-            "color_temperature": lighting_config.get("color_temperature", 6500),
-            "shadows": lighting_config.get("shadows", True),
-            "scene_id": scene_info["id"],
-            "start_time": scene_info["start_time"],
-            "end_time": scene_info["end_time"],
-        }
-        lights.append(main_light)
-        
-        # Create fill light
-        fill_light = {
-            "name": f"FillLight_{scene_info['id']}",
-            "type": "directional",
-            "position": lighting_config.get("fill_position", [5, 5, 5]),
-            "rotation": lighting_config.get("fill_rotation", [0, 0, 0]),
-            "brightness": lighting_config.get("fill_brightness", 0.3),
-            "color": lighting_config.get("fill_color", [1, 1, 1]),
-            "shadows": False,
-            "scene_id": scene_info["id"],
-            "start_time": scene_info["start_time"],
-            "end_time": scene_info["end_time"],
-        }
-        lights.append(fill_light)
-        
-        return lights
+        self.stage.objects.append(obj)
+        return self
     
-    async def _create_material(self, material_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Create material object."""
-        return {
-            "name": material_data.get("name", "DefaultMaterial"),
-            "type": "standard",
-            "properties": material_data.get("properties", {}),
-            "diffuse_color": material_data.get("properties", {}).get("diffuse_color", [0.8, 0.8, 0.8]),
-            "specular_color": material_data.get("properties", {}).get("specular_color", [1, 1, 1]),
-            "roughness": material_data.get("properties", {}).get("roughness", 0.5),
-            "metallic": material_data.get("properties", {}).get("metallic", 0.0),
-            "emission": material_data.get("properties", {}).get("emission", [0, 0, 0]),
-        }
-    
-    async def _create_evidence_object(self, evidence_info: Dict[str, Any]) -> Dict[str, Any]:
-        """Create evidence object."""
-        return {
-            "name": evidence_info["name"],
-            "type": evidence_info["type"],
-            "evidence_id": evidence_info["id"],
-            "position": [0, 0, 0],
-            "rotation": [0, 0, 0],
-            "scale": [1, 1, 1],
-            "material": f"Material_{evidence_info['id']}",
-            "start_time": evidence_info["start_time"],
-            "end_time": evidence_info["end_time"],
-            "confidence": evidence_info["confidence"],
-            "description": evidence_info["description"],
-        }
-    
-    def _validate_scene_graph(self, scene_graph: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate scene graph."""
-        validation_results = {
-            "valid": True,
-            "issues": [],
-            "warnings": [],
-            "scene_count": len(scene_graph.get("scenes", [])),
-            "camera_count": len(scene_graph.get("cameras", [])),
-            "light_count": len(scene_graph.get("lights", [])),
-            "material_count": len(scene_graph.get("materials", [])),
-            "object_count": len(scene_graph.get("objects", [])),
-        }
+    def add_attribute(
+        self, 
+        object_path: str, 
+        name: str, 
+        data_type: USDDataType, 
+        value: Any,
+        variability: str = "varying",
+        custom: bool = False
+    ) -> 'USDBuilder':
+        """Add an attribute to an object."""
+        if not self.stage:
+            raise ValueError("No stage created. Call create_stage() first.")
         
-        try:
-            # Check for scenes
-            if not scene_graph.get("scenes"):
-                validation_results["issues"].append("No scenes found in scene graph")
-            
-            # Check for cameras
-            if not scene_graph.get("cameras"):
-                validation_results["warnings"].append("No cameras found in scene graph")
-            
-            # Check for lights
-            if not scene_graph.get("lights"):
-                validation_results["warnings"].append("No lights found in scene graph")
-            
-            # Check scene duration
-            duration = scene_graph.get("duration", 0.0)
-            if duration <= 0:
-                validation_results["issues"].append("Invalid scene graph duration")
-            
-            # Check for overlapping scenes
-            scenes = scene_graph.get("scenes", [])
-            for i in range(len(scenes) - 1):
-                current_scene = scenes[i]
-                next_scene = scenes[i + 1]
-                
-                if current_scene["end_time"] > next_scene["start_time"]:
-                    validation_results["issues"].append(
-                        f"Overlapping scenes: {current_scene['name']} and {next_scene['name']}"
-                    )
-            
-            # Set overall validity
-            validation_results["valid"] = len(validation_results["issues"]) == 0
-            
-        except Exception as e:
-            validation_results["valid"] = False
-            validation_results["issues"].append(f"Validation failed: {str(e)}")
+        # Find the object
+        obj = self._find_object(object_path)
+        if not obj:
+            raise ValueError(f"Object not found: {object_path}")
         
-        return validation_results
+        attr = USDAttribute(
+            name=name,
+            data_type=data_type,
+            value=value,
+            variability=variability,
+            custom=custom
+        )
+        
+        obj.attributes.append(attr)
+        return self
     
-    def _convert_to_usd(self, scene_graph: Dict[str, Any]) -> str:
-        """Convert scene graph to USD format."""
-        try:
-            # Create USD header
-            usd_header = f"""#usda 1.0
-(
-    defaultPrim = "Scene"
-    metersPerUnit = 1
-    upAxis = "Y"
-    framesPerSecond = {scene_graph.get('fps', self.default_fps)}
-    timeCodesPerSecond = {scene_graph.get('fps', self.default_fps)}
-)
+    def add_child_object(
+        self,
+        parent_path: str,
+        child_path: str,
+        object_type: str,
+        attributes: Optional[List[USDAttribute]] = None
+    ) -> 'USDBuilder':
+        """Add a child object to a parent."""
+        if not self.stage:
+            raise ValueError("No stage created. Call create_stage() first.")
+        
+        # Find the parent object
+        parent = self._find_object(parent_path)
+        if not parent:
+            raise ValueError(f"Parent object not found: {parent_path}")
+        
+        child = USDObject(
+            path=child_path,
+            object_type=object_type,
+            attributes=attributes or [],
+            children=[]
+        )
+        
+        parent.children.append(child)
+        return self
+    
+    def _find_object(self, path: str) -> Optional[USDObject]:
+        """Find an object by path."""
+        for obj in self.stage.objects:
+            if obj.path == path:
+                return obj
+            # Check children recursively
+            found = self._find_object_in_children(obj, path)
+            if found:
+                return found
+        return None
+    
+    def _find_object_in_children(self, parent: USDObject, path: str) -> Optional[USDObject]:
+        """Find an object in children recursively."""
+        for child in parent.children:
+            if child.path == path:
+                return child
+            found = self._find_object_in_children(child, path)
+            if found:
+                return found
+        return None
+    
+    def build(self) -> str:
+        """Build the USD file content."""
+        if not self.stage:
+            raise ValueError("No stage created. Call create_stage() first.")
+        
+        lines = []
+        
+        # Add header
+        lines.append("#usda 1.0")
+        lines.append("")
+        
+        # Add metadata
+        if self.stage.metadata:
+            lines.append("def Scope \"Metadata\"")
+            lines.append("{")
+            for key, value in self.stage.metadata.items():
+                lines.append(f"    string {key} = \"{value}\"")
+            lines.append("}")
+            lines.append("")
+        
+        # Add objects
+        for obj in self.stage.objects:
+            self._build_object(obj, lines, 0)
+        
+        return "\n".join(lines)
+    
+    def _build_object(self, obj: USDObject, lines: List[str], indent: int):
+        """Build an object and its children."""
+        indent_str = "    " * indent
+        
+        # Object declaration
+        stage_type_str = obj.stage_type.value if obj.stage_type != USDStageType.DEF else "def"
+        lines.append(f"{indent_str}{stage_type_str} {obj.object_type} \"{obj.path}\"")
+        lines.append(f"{indent_str}{{")
+        
+        # Add attributes
+        for attr in obj.attributes:
+            self._build_attribute(attr, lines, indent + 1)
+        
+        # Add children
+        for child in obj.children:
+            self._build_object(child, lines, indent + 1)
+        
+        lines.append(f"{indent_str}}}")
+    
+    def _build_attribute(self, attr: USDAttribute, lines: List[str], indent: int):
+        """Build an attribute."""
+        indent_str = "    " * indent
+        
+        # Format value based on data type
+        value_str = self._format_value(attr.value, attr.data_type)
+        
+        # Build attribute line
+        custom_str = " custom " if attr.custom else " "
+        variability_str = f" {attr.variability}" if attr.variability != "varying" else ""
+        
+        lines.append(f"{indent_str}{custom_str}{attr.data_type.value}{variability_str} {attr.name} = {value_str}")
+    
+    def _format_value(self, value: Any, data_type: USDDataType) -> str:
+        """Format value for USD output."""
+        if data_type == USDDataType.STRING:
+            return f'"{value}"'
+        elif data_type == USDDataType.BOOL:
+            return "true" if value else "false"
+        elif data_type in [USDDataType.VECTOR3F, USDDataType.VECTOR3D]:
+            if isinstance(value, (list, tuple)) and len(value) == 3:
+                return f"({value[0]}, {value[1]}, {value[2]})"
+            else:
+                return f"({value}, {value}, {value})"
+        elif data_type in [USDDataType.QUATERNIONF, USDDataType.QUATERNIOND]:
+            if isinstance(value, (list, tuple)) and len(value) == 4:
+                return f"({value[0]}, {value[1]}, {value[2]}, {value[3]})"
+            else:
+                return "(0, 0, 0, 1)"  # Default quaternion
+        elif data_type == USDDataType.MATRIX4D:
+            if isinstance(value, (list, tuple)) and len(value) == 16:
+                return f"({', '.join(map(str, value))})"
+            else:
+                return "(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)"  # Identity matrix
+        else:
+            return str(value)
+    
+    def save_to_file(self, filepath: str) -> None:
+        """Save the USD stage to a file."""
+        content = self.build()
+        with open(filepath, 'w') as f:
+            f.write(content)
+    
+    def create_camera(
+        self, 
+        name: str, 
+        position: Tuple[float, float, float] = (0, 0, 5),
+        rotation: Tuple[float, float, float] = (0, 0, 0),
+        fov: float = 50.0
+    ) -> 'USDBuilder':
+        """Create a camera object."""
+        attributes = [
+            USDAttribute("xformOp:translate", USDDataType.VECTOR3F, position),
+            USDAttribute("xformOp:rotateXYZ", USDDataType.VECTOR3F, rotation),
+            USDAttribute("focalLength", USDDataType.FLOAT, 35.0),
+            USDAttribute("horizontalAperture", USDDataType.FLOAT, 20.955),
+            USDAttribute("verticalAperture", USDDataType.FLOAT, 15.955),
+            USDAttribute("clippingRange", USDDataType.VECTOR2F, (0.1, 1000.0)),
+        ]
+        
+        return self.add_object(f"/World/Camera_{name}", "Camera", attributes)
+    
+    def create_light(
+        self, 
+        name: str, 
+        light_type: str = "DistantLight",
+        position: Tuple[float, float, float] = (0, 10, 0),
+        intensity: float = 1.0,
+        color: Tuple[float, float, float] = (1, 1, 1)
+    ) -> 'USDBuilder':
+        """Create a light object."""
+        attributes = [
+            USDAttribute("xformOp:translate", USDDataType.VECTOR3F, position),
+            USDAttribute("intensity", USDDataType.FLOAT, intensity),
+            USDAttribute("color", USDDataType.VECTOR3F, color),
+        ]
+        
+        return self.add_object(f"/World/Light_{name}", light_type, attributes)
+    
+    def create_mesh(
+        self, 
+        name: str, 
+        position: Tuple[float, float, float] = (0, 0, 0),
+        scale: Tuple[float, float, float] = (1, 1, 1),
+        material: Optional[str] = None
+    ) -> 'USDBuilder':
+        """Create a mesh object."""
+        attributes = [
+            USDAttribute("xformOp:translate", USDDataType.VECTOR3F, position),
+            USDAttribute("xformOp:scale", USDDataType.VECTOR3F, scale),
+        ]
+        
+        if material:
+            attributes.append(
+                USDAttribute("material:binding", USDDataType.STRING, material)
+            )
+        
+        return self.add_object(f"/World/Mesh_{name}", "Mesh", attributes)
 
-def "Scene" (
-    kind = "group"
-)
-{{
-    def Camera "MainCamera"
-    {{
-        float focalLength = 50.0
-        float focusDistance = 5.0
-        float fStop = 5.6
-        float horizontalAperture = 20.955
-        float horizontalApertureOffset = 0
-        float verticalAperture = 15.955
-        float verticalApertureOffset = 0
-        matrix4d xformOp:transform = ( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0, 0, 5, 1) )
-        uniform token[] xformOpOrder = ["xformOp:transform"]
-    }}
+
+def create_usd_builder() -> USDBuilder:
+    """Create a new USD builder instance."""
+    return USDBuilder()
+
+
+# Example usage
+if __name__ == "__main__":
+    # Create a simple scene
+    builder = create_usd_builder()
     
-    def DirectionalLight "MainLight"
-    {{
-        float intensity = 1.0
-        color3f color = (1, 1, 1)
-        float3 xformOp:rotateXYZ = (0, 0, 0)
-        matrix4d xformOp:transform = ( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0, 10, 0, 1) )
-        uniform token[] xformOpOrder = ["xformOp:transform"]
-    }}
-"""
-            
-            # Add scenes
-            usd_scenes = ""
-            for scene in scene_graph.get("scenes", []):
-                usd_scenes += f"""
-    def "Scene_{scene['id']}" (
-        kind = "group"
-    )
-    {{
-        def "Evidence_Objects"
-        {{
-            # Evidence objects for scene {scene['name']}
-        }}
-    }}
-"""
-            
-            # Add materials
-            usd_materials = ""
-            for material in scene_graph.get("materials", []):
-                usd_materials += f"""
-    def Material "Material_{material['name']}"
-    {{
-        def Shader "Diffuse"
-        {{
-            uniform token info:id = "UsdPreviewSurface"
-            color3f diffuseColor = {material.get('diffuse_color', [0.8, 0.8, 0.8])}
-            float roughness = {material.get('roughness', 0.5)}
-            float metallic = {material.get('metallic', 0.0)}
-        }}
-    }}
-"""
-            
-            # Combine USD components
-            usd_content = usd_header + usd_scenes + usd_materials + "}"
-            
-            return usd_content
-            
-        except Exception as e:
-            return f"# USD generation failed: {str(e)}"
+    builder.create_stage("LegalSimulation")
+    builder.add_metadata("upAxis", "Y")
+    builder.add_metadata("metersPerUnit", 1)
+    
+    # Add a camera
+    builder.create_camera("Main", position=(0, 0, 5), fov=50)
+    
+    # Add a light
+    builder.create_light("Main", "DistantLight", position=(0, 10, 0), intensity=1.5)
+    
+    # Add a simple mesh
+    builder.create_mesh("Evidence", position=(0, 0, 0), scale=(1, 1, 1))
+    
+    # Build and save
+    usd_content = builder.build()
+    print("Generated USD content:")
+    print(usd_content)
+    
+    # Save to temporary file
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.usd', delete=False) as f:
+        f.write(usd_content)
+        print(f"\nSaved to: {f.name}")

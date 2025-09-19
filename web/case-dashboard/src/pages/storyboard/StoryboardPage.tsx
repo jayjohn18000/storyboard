@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { StoryboardEditor } from '../../../../shared/components/storyboard/StoryboardEditor';
+// import { StoryboardEditor } from '../../shared/components/storyboard/StoryboardEditor';
 
 export const StoryboardPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -13,29 +13,10 @@ The judge calls the court to order and begins the proceedings.
 @time[10.0] #actor[Lawyer] ~action[presents evidence] ^evidence[doc-002@page:5]
 The lawyer presents the key evidence to the jury.`);
 
-  const [isValid, setIsValid] = useState(true);
-  const [errors, setErrors] = useState<string[]>([]);
-  const [beats, setBeats] = useState<any[]>([]);
-
-  // Mock evidence list
-  const evidenceList = [
-    { id: 'doc-001', name: 'Contract_Amendment.pdf', type: 'document' },
-    { id: 'audio-001', name: 'Meeting_Recording.mp3', type: 'audio' },
-    { id: 'doc-002', name: 'Evidence_Photo_001.jpg', type: 'photo' },
-  ];
-
-  const handleContentChange = (newContent: string) => {
-    setContent(newContent);
-  };
-
-  const handleValidationChange = (valid: boolean, validationErrors: string[]) => {
-    setIsValid(valid);
-    setErrors(validationErrors);
-  };
-
-  const handleBeatsExtracted = (extractedBeats: any[]) => {
-    setBeats(extractedBeats);
-  };
+  // These will be used when StoryboardEditor is re-enabled
+  // const [isValid, setIsValid] = useState(true);
+  // const [errors, setErrors] = useState<string[]>([]);
+  // const [beats, setBeats] = useState<any[]>([]);
 
   return (
     <div className="space-y-6">
@@ -45,13 +26,19 @@ The lawyer presents the key evidence to the jury.`);
       </div>
       
       <div className="h-[600px]">
-        <StoryboardEditor
-          initialContent={content}
-          evidenceList={evidenceList}
-          onContentChange={handleContentChange}
-          onValidationChange={handleValidationChange}
-          onBeatsExtracted={handleBeatsExtracted}
-        />
+        <div className="bg-white p-6 rounded-lg shadow h-full">
+          <h2 className="text-xl font-semibold mb-4">Storyboard Editor</h2>
+          <p className="text-gray-600 mb-4">Storyboard ID: {id}</p>
+          <textarea
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            className="w-full h-96 p-4 border border-gray-300 rounded-md font-mono text-sm"
+            placeholder="Enter your storyboard content here..."
+          />
+          <p className="text-sm text-gray-500 mt-2">
+            The StoryboardEditor component will be integrated here once ReactFlow issues are resolved.
+          </p>
+        </div>
       </div>
     </div>
   );

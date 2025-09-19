@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 
 from ...shared.models.storyboard import Storyboard, StoryboardMetadata, StoryboardStatus, Scene, SceneType, EvidenceAnchor
+from ...shared.policy.middleware import requires
 from ..middleware.auth import get_current_user
 from ..middleware.mode_enforcer import ModeEnforcer
 
@@ -318,6 +319,7 @@ async def validate_storyboard(
 
 
 @router.post("/{storyboard_id}/compile", response_model=dict)
+@requires("storyboard_manager")
 async def compile_storyboard(
     storyboard_id: str,
     current_user: str = Depends(get_current_user),
@@ -339,14 +341,55 @@ async def compile_storyboard(
     #         detail="Storyboard not found"
     #     )
     
-    # TODO: Compile storyboard
-    # timeline_id = await storyboard_service.compile_storyboard(storyboard_id)
+    # For now, use mock storyboard data
+    storyboard_data = {
+        "scenes": [
+            {
+                "id": "scene_1",
+                "title": "Opening Scene",
+                "duration": 5.0,
+                "evidence_anchors": []
+            }
+        ],
+        "metadata": {
+            "title": "Mock Storyboard",
+            "duration": 5.0
+        }
+    }
     
-    # Mock response for now
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail="Storyboard not found"
-    )
+    # Call Storyboard service to compile
+    try:
+        from ...shared.http_client import get_http_client
+        from ...shared.config import get_service_url
+        
+        http_client = await get_http_client()
+        storyboard_url = get_service_url("storyboard")
+        
+        compile_request = {
+            "storyboard_data": storyboard_data,
+            "metadata": {"compiled_by": current_user}
+        }
+        
+        response = await http_client.request_json(
+            "POST",
+            f"{storyboard_url}/storyboards/{storyboard_id}/compile",
+            json=compile_request,
+            timeout=30
+        )
+        
+        return {
+            "status": "compiled",
+            "storyboard_id": storyboard_id,
+            "timeline_id": response.get("timeline_id"),
+            "compilation_result": response.get("compilation_result")
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to compile storyboard {storyboard_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to compile storyboard: {str(e)}"
+        )
 
 
 @router.get("/{storyboard_id}/evidence-coverage", response_model=dict)

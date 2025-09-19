@@ -13,11 +13,23 @@ from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
-from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+try:
+    from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+except ImportError:
+    SQLAlchemyInstrumentor = None
 from opentelemetry.instrumentation.redis import RedisInstrumentor
-from opentelemetry.instrumentation.boto3sqs import Boto3SQSInstrumentor
-from opentelemetry.instrumentation.psycopg2 import Psycopg2Instrumentor
-from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+try:
+    from opentelemetry.instrumentation.boto3sqs import Boto3SQSInstrumentor
+except ImportError:
+    Boto3SQSInstrumentor = None
+try:
+    from opentelemetry.instrumentation.psycopg2 import Psycopg2Instrumentor
+except ImportError:
+    Psycopg2Instrumentor = None
+try:
+    from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+except ImportError:
+    HTTPXClientInstrumentor = None
 import logging
 
 
@@ -101,22 +113,62 @@ class MonitoringSetup:
         metrics.set_meter_provider(meter_provider)
     
     def _setup_logging(self) -> None:
-        """Setup structured logging."""
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        )
+        """Setup structured JSON logging."""
+        import json
+        import sys
+        from datetime import datetime
+        
+        class JSONFormatter(logging.Formatter):
+            def format(self, record):
+                log_entry = {
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "level": record.levelname,
+                    "service": self.service_name,
+                    "logger": record.name,
+                    "message": record.getMessage(),
+                }
+                
+                # Add request context if available
+                if hasattr(record, 'request_id'):
+                    log_entry["request_id"] = record.request_id
+                if hasattr(record, 'route'):
+                    log_entry["route"] = record.route
+                if hasattr(record, 'latency'):
+                    log_entry["latency_ms"] = record.latency
+                
+                # Add exception info if present
+                if record.exc_info:
+                    log_entry["exception"] = self.formatException(record.exc_info)
+                
+                return json.dumps(log_entry)
+        
+        # Configure root logger
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.INFO)
+        
+        # Remove existing handlers
+        for handler in root_logger.handlers[:]:
+            root_logger.removeHandler(handler)
+        
+        # Add JSON formatter to console handler
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setFormatter(JSONFormatter())
+        root_logger.addHandler(console_handler)
     
     def _instrument_libraries(self) -> None:
         """Instrument common libraries."""
         try:
             FastAPIInstrumentor.instrument()
             RequestsInstrumentor.instrument()
-            SQLAlchemyInstrumentor.instrument()
+            if SQLAlchemyInstrumentor:
+                SQLAlchemyInstrumentor.instrument()
             RedisInstrumentor.instrument()
-            Boto3SQSInstrumentor.instrument()
-            Psycopg2Instrumentor.instrument()
-            HTTPXClientInstrumentor.instrument()
+            if Boto3SQSInstrumentor:
+                Boto3SQSInstrumentor.instrument()
+            if Psycopg2Instrumentor:
+                Psycopg2Instrumentor.instrument()
+            if HTTPXClientInstrumentor:
+                HTTPXClientInstrumentor.instrument()
         except Exception as e:
             logging.warning(f"Failed to instrument some libraries: {e}")
     
@@ -296,3 +348,93 @@ class TraceContext:
             self.span.set_status(trace.Status(trace.StatusCode.OK))
         
         self.span.end()
+
+
+class ReadinessChecker:
+    """Check service readiness by verifying dependencies."""
+    
+    def __init__(self, service_name: str):
+        self.service_name = service_name
+        self.tracer = trace.get_tracer(__name__)
+    
+    async def check_database(self) -> bool:
+        """Check database connectivity."""
+        with self.tracer.start_span("readiness.database_check") as span:
+            try:
+                # Import here to avoid circular imports
+                from ..database import get_db
+                async with get_db() as db:
+                    # Simple query to test connectivity
+                    await db.execute("SELECT 1")
+                span.set_attribute("database.status", "healthy")
+                return True
+            except Exception as e:
+                span.set_attribute("database.status", "unhealthy")
+                span.set_attribute("database.error", str(e))
+                return False
+    
+    async def check_redis(self) -> bool:
+        """Check Redis connectivity."""
+        with self.tracer.start_span("readiness.redis_check") as span:
+            try:
+                import redis.asyncio as redis
+                redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+                client = redis.from_url(redis_url)
+                await client.ping()
+                await client.close()
+                span.set_attribute("redis.status", "healthy")
+                return True
+            except Exception as e:
+                span.set_attribute("redis.status", "unhealthy")
+                span.set_attribute("redis.error", str(e))
+                return False
+    
+    async def check_external_services(self) -> Dict[str, bool]:
+        """Check external service dependencies."""
+        with self.tracer.start_span("readiness.external_services_check") as span:
+            results = {}
+            
+            # Check each service endpoint
+            services = ["evidence", "storyboard", "timeline", "render"]
+            for service in services:
+                try:
+                    from ..config import get_service_url
+                    from ..http_client import get_http_client
+                    
+                    url = get_service_url(service)
+                    client = get_http_client()
+                    
+                    response = await client.request_json("GET", f"{url}/health", timeout=2)
+                    results[service] = response.get("status") == "ok"
+                    span.set_attribute(f"service.{service}.status", "healthy" if results[service] else "unhealthy")
+                except Exception as e:
+                    results[service] = False
+                    span.set_attribute(f"service.{service}.status", "unhealthy")
+                    span.set_attribute(f"service.{service}.error", str(e))
+            
+            return results
+    
+    async def is_ready(self) -> Dict[str, Any]:
+        """Comprehensive readiness check."""
+        with self.tracer.start_span("readiness.check") as span:
+            span.set_attribute("service.name", self.service_name)
+            
+            db_ready = await self.check_database()
+            redis_ready = await self.check_redis()
+            external_services = await self.check_external_services()
+            
+            all_ready = db_ready and redis_ready and all(external_services.values())
+            
+            span.set_attribute("readiness.overall", all_ready)
+            span.set_attribute("readiness.database", db_ready)
+            span.set_attribute("readiness.redis", redis_ready)
+            
+            return {
+                "ready": all_ready,
+                "service": self.service_name,
+                "checks": {
+                    "database": db_ready,
+                    "redis": redis_ready,
+                    "external_services": external_services
+                }
+            }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   PlusIcon,
@@ -10,81 +10,12 @@ import {
   ChartBarIcon,
   FilmIcon,
 } from '@heroicons/react/24/outline';
-
-interface Case {
-  id: string;
-  title: string;
-  mode: 'sandbox' | 'demonstrative';
-  jurisdiction: string;
-  status: 'draft' | 'in_review' | 'approved' | 'locked';
-  createdAt: Date;
-  updatedAt: Date;
-  createdBy: string;
-  evidenceCount: number;
-  storyboardCount: number;
-  renderCount: number;
-}
+import { useGetCasesQuery, Case } from '../../store/api/casesApi';
 
 export const CasesPage: React.FC = () => {
-  const [cases, setCases] = useState<Case[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const { data: cases = [], isLoading, error } = useGetCasesQuery();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
-
-  useEffect(() => {
-    // Mock data loading
-    const loadCases = async () => {
-      setIsLoading(true);
-      
-      // Simulate API call
-      setTimeout(() => {
-        setCases([
-          {
-            id: 'case-001',
-            title: 'Smith vs. Johnson Contract Dispute',
-            mode: 'demonstrative',
-            jurisdiction: 'US-Federal',
-            status: 'in_review',
-            createdAt: new Date('2024-01-15'),
-            updatedAt: new Date('2024-01-20'),
-            createdBy: 'John Attorney',
-            evidenceCount: 25,
-            storyboardCount: 3,
-            renderCount: 1,
-          },
-          {
-            id: 'case-002',
-            title: 'Property Boundary Dispute',
-            mode: 'sandbox',
-            jurisdiction: 'US-State-CA',
-            status: 'draft',
-            createdAt: new Date('2024-01-18'),
-            updatedAt: new Date('2024-01-19'),
-            createdBy: 'Jane Lawyer',
-            evidenceCount: 12,
-            storyboardCount: 1,
-            renderCount: 0,
-          },
-          {
-            id: 'case-003',
-            title: 'Employment Discrimination Case',
-            mode: 'demonstrative',
-            jurisdiction: 'US-Federal',
-            status: 'approved',
-            createdAt: new Date('2024-01-10'),
-            updatedAt: new Date('2024-01-22'),
-            createdBy: 'Bob Counsel',
-            evidenceCount: 45,
-            storyboardCount: 5,
-            renderCount: 3,
-          },
-        ]);
-        setIsLoading(false);
-      }, 1000);
-    };
-
-    loadCases();
-  }, []);
 
   const getStatusColor = (status: Case['status']) => {
     switch (status) {
@@ -113,6 +44,17 @@ export const CasesPage: React.FC = () => {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="text-danger-500 text-lg font-medium mb-2">Error loading cases</div>
+          <div className="text-gray-600">Please try refreshing the page</div>
+        </div>
       </div>
     );
   }
@@ -224,7 +166,7 @@ export const CasesPage: React.FC = () => {
                 </div>
                 <div className="flex items-center space-x-1">
                   <CalendarIcon className="w-4 h-4" />
-                  <span>{caseItem.updatedAt.toLocaleDateString()}</span>
+                  <span>{new Date(caseItem.updatedAt).toLocaleDateString()}</span>
                 </div>
               </div>
             </div>

@@ -13,7 +13,7 @@ import {
 import { useGetCaseQuery } from '../store/api/casesApi';
 import { useGetEvidenceQuery } from '../store/api/evidenceApi';
 import { useGetStoryboardsQuery } from '../store/api/storyboardsApi';
-import { useGetRendersQuery } from '../store/api/rendersApi';
+import { useGetCaseRendersQuery } from '../store/api/rendersApi';
 
 interface Case {
   id: string;
@@ -72,7 +72,7 @@ export const CaseOverview: React.FC<CaseOverviewProps> = ({ caseId }) => {
   const { data: caseData, isLoading: caseLoading, error: caseError } = useGetCaseQuery(caseId);
   const { data: evidenceData, isLoading: evidenceLoading } = useGetEvidenceQuery({ caseId });
   const { data: storyboardsData, isLoading: storyboardsLoading } = useGetStoryboardsQuery({ caseId });
-  const { data: rendersData, isLoading: rendersLoading } = useGetRendersQuery({ caseId });
+  const { data: rendersData, isLoading: rendersLoading } = useGetCaseRendersQuery(caseId);
 
   const isLoading = caseLoading || evidenceLoading || storyboardsLoading || rendersLoading;
 
@@ -85,7 +85,7 @@ export const CaseOverview: React.FC<CaseOverviewProps> = ({ caseId }) => {
       videos: evidenceData.filter(e => e.type === 'video').length,
       audio: evidenceData.filter(e => e.type === 'audio').length,
     },
-    recent: evidenceData
+    recent: [...evidenceData]
       .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime())
       .slice(0, 3)
       .map(evidence => ({
@@ -136,7 +136,9 @@ export const CaseOverview: React.FC<CaseOverviewProps> = ({ caseId }) => {
     errors: storyboardsData.flatMap(sb => sb.validationErrors),
     warnings: storyboardsData.filter(sb => !sb.isValid).map(sb => `Storyboard ${sb.title} has validation issues`),
     coveragePercentage: evidenceData ? Math.round((evidenceData.length / Math.max(evidenceData.length, 1)) * 100) : 0,
-    lastValidated: new Date(Math.max(...storyboardsData.map(sb => new Date(sb.updatedAt).getTime())))
+    lastValidated: storyboardsData.length > 0 ? 
+      new Date(Math.max(...storyboardsData.map(sb => new Date(sb.updatedAt).getTime()))) : 
+      new Date()
   } : null;
 
   const getStatusColor = (status: Case['status']) => {
@@ -214,8 +216,8 @@ export const CaseOverview: React.FC<CaseOverviewProps> = ({ caseId }) => {
         </div>
         
         <div className="mt-4 text-sm text-gray-600">
-          Created by {caseData.createdBy} on {caseData.createdAt.toLocaleDateString()}
-          • Last updated {caseData.updatedAt.toLocaleDateString()}
+          Created by {caseData.createdBy} on {new Date(caseData.createdAt).toLocaleDateString()}
+          • Last updated {new Date(caseData.updatedAt).toLocaleDateString()}
         </div>
       </div>
 

@@ -5,9 +5,13 @@ import time
 import tempfile
 import os
 from typing import List, Dict, Any
-import whisperx
-import torch
-import torchaudio
+try:
+    import whisperx
+    import torch
+    import torchaudio
+    WHISPERX_AVAILABLE = True
+except ImportError:
+    WHISPERX_AVAILABLE = False
 
 from ...interfaces.asr import ASRInterface, ASRResult, ASRConfig, ASRError, UnsupportedAudioFormatError, TranscriptionError
 
@@ -17,6 +21,9 @@ class WhisperXLocalASR(ASRInterface):
     
     def __init__(self, config: Dict[str, Any]):
         """Initialize WhisperX local ASR."""
+        if not WHISPERX_AVAILABLE:
+            raise ASRError("WhisperX is not available. Please install whisperx, torch, and torchaudio.")
+        
         self.device = config.get("device", "cpu")
         self.compute_type = config.get("compute_type", "int8")
         self.batch_size = config.get("batch_size", 16)
@@ -62,7 +69,7 @@ class WhisperXLocalASR(ASRInterface):
         except Exception as e:
             raise ASRError(f"Failed to initialize WhisperX model: {e}")
     
-    async def _load_audio(self, audio_data: bytes) -> torch.Tensor:
+    async def _load_audio(self, audio_data: bytes):
         """Load audio data into tensor."""
         try:
             # Create temporary file

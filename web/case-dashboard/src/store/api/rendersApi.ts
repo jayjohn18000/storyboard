@@ -2,28 +2,50 @@ import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 
 export interface RenderJob {
   id: string;
-  caseId: string;
-  storyboardId?: string;
+  timeline_id: string;
+  storyboard_id: string;
+  case_id: string;
+  status: 'queued' | 'processing' | 'completed' | 'failed' | 'cancelled';
+  priority: number;
+  created_by: string;
+  created_at: string;
+  started_at?: string;
+  completed_at?: string;
+  width: number;
+  height: number;
+  fps: number;
+  quality: 'draft' | 'standard' | 'high' | 'ultra';
   profile: 'neutral' | 'cinematic';
-  status: 'queued' | 'rendering' | 'completed' | 'failed' | 'cancelled';
-  progress: number;
-  startTime: string;
-  estimatedCompletion?: string;
-  framesRendered: number;
-  totalFrames: number;
-  renderTime: number;
-  queuePosition?: number;
-  error?: string;
-  resultPath?: string;
-  checksum?: string;
+  deterministic: boolean;
   seed?: number;
+  output_format: string;
+  output_path: string;
+  file_size_bytes: number;
+  duration_seconds: number;
+  render_time_seconds: number;
+  frames_rendered: number;
+  total_frames: number;
+  progress_percentage: number;
+  error_message: string;
+  retry_count: number;
+  max_retries: number;
+  checksum: string;
+  golden_frame_checksums: string[];
 }
 
 export interface CreateRenderRequest {
-  caseId: string;
-  storyboardId?: string;
-  profile: 'neutral' | 'cinematic';
+  timeline_id: string;
+  storyboard_id: string;
+  case_id: string;
+  width?: number;
+  height?: number;
+  fps?: number;
+  quality?: 'draft' | 'standard' | 'high' | 'ultra';
+  profile?: 'neutral' | 'cinematic';
+  deterministic?: boolean;
   seed?: number;
+  output_format?: string;
+  priority?: number;
 }
 
 export interface RenderConfig {
@@ -50,33 +72,58 @@ export const rendersApi = createApi({
   }),
   tagTypes: ['Render'],
   endpoints: (builder) => ({
-    getRenders: builder.query<RenderJob[], { caseId?: string }>({
-      query: ({ caseId }) => (caseId ? `?caseId=${caseId}` : ''),
+    getRenders: builder.query<RenderJob[], { caseId?: string; skip?: number; limit?: number; statusFilter?: string }>({
+      query: ({ caseId, skip = 0, limit = 100, statusFilter }) => {
+        const params = new URLSearchParams();
+        if (caseId) params.append('case_id_filter', caseId);
+        if (skip) params.append('skip', skip.toString());
+        if (limit) params.append('limit', limit.toString());
+        if (statusFilter) params.append('status_filter', statusFilter);
+        return `?${params.toString()}`;
+      },
       providesTags: ['Render'],
       transformResponse: (response: any[]) => {
         return response.map(render => ({
           id: render.id,
-          caseId: render.case_id,
-          storyboardId: render.storyboard_id,
-          profile: render.render_config?.profile || 'neutral',
-          status: render.status,
-          progress: render.progress || 0,
-          startTime: render.started_at || render.created_at,
-          estimatedCompletion: render.completed_at,
-          framesRendered: render.frames_rendered || 0,
-          totalFrames: render.total_frames || 0,
-          renderTime: render.render_time || 0,
-          queuePosition: render.queue_position,
-          error: render.error,
-          resultPath: render.output_path,
-          checksum: render.checksum,
+          timeline_id: render.timeline_id,
+          storyboard_id: render.storyboard_id,
+          case_id: render.case_id,
+          status: render.status?.toLowerCase() || 'queued',
+          priority: render.priority || 0,
+          created_by: render.created_by,
+          created_at: render.created_at,
+          started_at: render.started_at,
+          completed_at: render.completed_at,
+          width: render.width || 1920,
+          height: render.height || 1080,
+          fps: render.fps || 30,
+          quality: render.quality?.toLowerCase() || 'standard',
+          profile: render.profile || 'neutral',
+          deterministic: render.deterministic || true,
           seed: render.seed,
+          output_format: render.output_format || 'mp4',
+          output_path: render.output_path || '',
+          file_size_bytes: render.file_size_bytes || 0,
+          duration_seconds: render.duration_seconds || 0,
+          render_time_seconds: render.render_time_seconds || 0,
+          frames_rendered: render.frames_rendered || 0,
+          total_frames: render.total_frames || 0,
+          progress_percentage: render.progress_percentage || 0,
+          error_message: render.error_message || '',
+          retry_count: render.retry_count || 0,
+          max_retries: render.max_retries || 3,
+          checksum: render.checksum || '',
+          golden_frame_checksums: render.golden_frame_checksums || [],
         }));
       },
     }),
     getRender: builder.query<RenderJob, string>({
       query: (id) => `/${id}`,
       providesTags: (result, error, id) => [{ type: 'Render', id }],
+    }),
+    getCaseRenders: builder.query<RenderJob[], string>({
+      query: (caseId) => `/cases/${caseId}/renders`,
+      providesTags: (result, error, caseId) => [{ type: 'Render', id: `case-${caseId}` }],
     }),
     createRender: builder.mutation<RenderJob, CreateRenderRequest>({
       query: (newRender) => ({
@@ -86,10 +133,18 @@ export const rendersApi = createApi({
       }),
       invalidatesTags: ['Render'],
     }),
+    updateRender: builder.mutation<RenderJob, { id: string; priority?: number }>({
+      query: ({ id, priority }) => ({
+        url: `/${id}`,
+        method: 'PUT',
+        body: { priority },
+      }),
+      invalidatesTags: (result, error, { id }) => [{ type: 'Render', id }],
+    }),
     cancelRender: builder.mutation<void, string>({
       query: (id) => ({
-        url: `/${id}/cancel`,
-        method: 'POST',
+        url: `/${id}`,
+        method: 'DELETE',
       }),
       invalidatesTags: (result, error, id) => [{ type: 'Render', id }],
     }),
@@ -100,34 +155,34 @@ export const rendersApi = createApi({
       }),
       invalidatesTags: (result, error, id) => [{ type: 'Render', id }],
     }),
-    downloadRender: builder.mutation<{ downloadUrl: string }, string>({
+    downloadRender: builder.query<Blob, string>({
       query: (id) => ({
         url: `/${id}/download`,
         method: 'GET',
+        responseHandler: (response) => response.blob(),
       }),
     }),
-    getRenderProgress: builder.query<RenderJob, string>({
-      query: (id) => `/${id}/progress`,
+    getRenderStatus: builder.query<{
+      status: string;
+      progress_percentage: number;
+      frames_rendered: number;
+      total_frames: number;
+      error_message: string;
+      render_time_seconds: number;
+    }, string>({
+      query: (id) => `/${id}/status`,
       providesTags: (result, error, id) => [{ type: 'Render', id }],
     }),
-    getSystemMetrics: builder.query<{
-      cpuUsage: number;
-      memoryUsage: number;
-      gpuUsage: number;
-      diskUsage: number;
-      activeWorkers: number;
-      queueLength: number;
+    getQueueStats: builder.query<{
+      total_jobs: number;
+      queued: number;
+      processing: number;
+      completed: number;
+      failed: number;
+      cancelled: number;
     }, void>({
-      query: () => '/system/metrics',
-      // Mock system metrics
-      transformResponse: () => ({
-        cpuUsage: 45.2,
-        memoryUsage: 67.8,
-        gpuUsage: 23.1,
-        diskUsage: 34.5,
-        activeWorkers: 3,
-        queueLength: 2,
-      }),
+      query: () => '/queue/stats',
+      providesTags: ['Render'],
     }),
   }),
 });
@@ -135,10 +190,12 @@ export const rendersApi = createApi({
 export const {
   useGetRendersQuery,
   useGetRenderQuery,
+  useGetCaseRendersQuery,
   useCreateRenderMutation,
+  useUpdateRenderMutation,
   useCancelRenderMutation,
   useRetryRenderMutation,
-  useDownloadRenderMutation,
-  useGetRenderProgressQuery,
-  useGetSystemMetricsQuery,
+  useDownloadRenderQuery,
+  useGetRenderStatusQuery,
+  useGetQueueStatsQuery,
 } = rendersApi;

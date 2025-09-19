@@ -1,18 +1,30 @@
 """Evidence management API routes."""
 
+import logging
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from pydantic import BaseModel, Field
 from datetime import datetime
 
 from ...shared.models.evidence import Evidence, EvidenceMetadata, EvidenceType, EvidenceStatus
+from ...shared.services.evidence_service import EvidenceService
+from ...shared.services.database_service import DatabaseService
 from ...shared.http_client import get_http_client
 from ...shared.config import get_service_url
+from ...shared.policy.middleware import requires
 from ..middleware.auth import get_current_user
 from ..middleware.mode_enforcer import ModeEnforcer
 
+logger = logging.getLogger(__name__)
+
 
 router = APIRouter()
+
+
+async def get_evidence_service() -> EvidenceService:
+    """Get evidence service instance."""
+    db_service = DatabaseService()
+    return EvidenceService(db_service)
 
 
 class EvidenceUploadRequest(BaseModel):
@@ -44,6 +56,7 @@ class EvidenceUpdateRequest(BaseModel):
 
 
 @router.post("/upload", response_model=EvidenceResponse, status_code=status.HTTP_201_CREATED)
+@requires("evidence_manager")
 async def upload_evidence(
     file: UploadFile = File(...),
     evidence_type: EvidenceType = Form(...),
@@ -51,7 +64,8 @@ async def upload_evidence(
     description: Optional[str] = Form(None),
     tags: str = Form("{}"),  # JSON string
     current_user: str = Depends(get_current_user),
-    mode_enforcer: ModeEnforcer = Depends()
+    mode_enforcer: ModeEnforcer = Depends(),
+    evidence_service: EvidenceService = Depends(get_evidence_service)
 ):
     """Upload evidence file."""
     # Check permissions
@@ -87,40 +101,41 @@ async def upload_evidence(
             detail="Invalid tags JSON format"
         )
     
-    # Create evidence metadata
-    metadata = EvidenceMetadata(
-        filename=file.filename,
-        content_type=file.content_type or "application/octet-stream",
-        size_bytes=len(file_data),
-        checksum="",  # Will be calculated by storage service
-        uploaded_by=current_user,
-        description=description or "",
-        tags=tags_dict,
-    )
-    
-    # Create evidence
-    evidence = Evidence(
-        evidence_type=evidence_type,
-        metadata=metadata,
-        case_id=case_id,
-    )
-    
-    # TODO: Store evidence and process
-    # storage_id = await evidence_service.store_evidence(evidence, file_data)
-    # evidence.storage_id = storage_id
-    # await evidence_service.process_evidence(evidence)
-    
-    return EvidenceResponse(
-        id=evidence.id,
-        evidence_type=evidence.evidence_type,
-        metadata=evidence.metadata,
-        status=evidence.status,
-        storage_id=evidence.storage_id,
-        case_id=evidence.case_id,
-        chain_of_custody=evidence.chain_of_custody,
-        worm_locked=evidence.worm_locked,
-        processing_result=evidence.processing_result.to_dict() if evidence.processing_result else None,
-    )
+    try:
+        # Store evidence using service
+        evidence = await evidence_service.store_evidence(
+            file_data=file_data,
+            filename=file.filename,
+            mime_type=file.content_type or "application/octet-stream",
+            evidence_type=evidence_type,
+            case_id=case_id or "",
+            uploaded_by=current_user,
+            description=description,
+            tags=tags_dict
+        )
+        
+        # Process evidence asynchronously
+        # Note: In production, this would be queued for background processing
+        await evidence_service.process_evidence(evidence.id)
+        
+        return EvidenceResponse(
+            id=evidence.id,
+            evidence_type=evidence.evidence_type,
+            metadata=evidence.metadata,
+            status=evidence.status,
+            storage_id=evidence.storage_id,
+            case_id=evidence.case_id,
+            chain_of_custody=evidence.chain_of_custody,
+            worm_locked=evidence.worm_locked,
+            processing_result=evidence.processing_result.to_dict() if evidence.processing_result else None,
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to upload evidence: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to upload evidence: {str(e)}"
+        )
 
 
 @router.get("/", response_model=List[EvidenceResponse])
@@ -131,7 +146,8 @@ async def list_evidence(
     status_filter: Optional[EvidenceStatus] = None,
     case_id_filter: Optional[str] = None,
     current_user: str = Depends(get_current_user),
-    mode_enforcer: ModeEnforcer = Depends()
+    mode_enforcer: ModeEnforcer = Depends(),
+    evidence_service: EvidenceService = Depends(get_evidence_service)
 ):
     """
     List evidence with optional filtering.
@@ -175,55 +191,33 @@ async def list_evidence(
         )
     
     try:
-        # Get HTTP client and evidence service URL
-        http_client = get_http_client()
-        evidence_url = get_service_url("evidence")
-        
-        # Build query parameters
-        params = {
-            "skip": skip,
-            "limit": limit,
-        }
-        if evidence_type_filter:
-            params["evidence_type_filter"] = evidence_type_filter.value
-        if status_filter:
-            params["status_filter"] = status_filter.value
-        if case_id_filter:
-            params["case_id_filter"] = case_id_filter
-        
-        # Make HTTP call to evidence service
-        response = await http_client.get(
-            f"{evidence_url}/evidence",
-            params=params,
-            headers={"X-User-ID": current_user}
+        # Get evidence from service
+        evidence_list = await evidence_service.list_evidence(
+            case_id=case_id_filter,
+            skip=skip,
+            limit=limit,
+            status_filter=status_filter
         )
         
-        # Convert response to EvidenceResponse objects
-        evidence_list = []
-        for evidence_data in response.get("evidence", []):
-            # Map the response format to EvidenceResponse format
-            evidence_response = EvidenceResponse(
-                id=evidence_data["evidence_id"],
-                evidence_type=EvidenceType.DOCUMENT,  # Default, should be determined from content_type
-                metadata=EvidenceMetadata(
-                    filename=evidence_data["filename"],
-                    content_type=evidence_data["content_type"],
-                    size_bytes=evidence_data["size_bytes"],
-                    checksum=evidence_data["checksum"],
-                    uploaded_by=evidence_data.get("uploaded_by", "unknown"),
-                    description="",
-                    tags={}
-                ),
-                status=EvidenceStatus.UPLOADED,  # Map from status string
-                storage_id=evidence_data["evidence_id"],
-                case_id=evidence_data.get("case_id"),
-                chain_of_custody=[],
-                worm_locked=evidence_data.get("worm_locked", False),
-                processing_result=None
-            )
-            evidence_list.append(evidence_response)
+        # Filter by evidence type if specified
+        if evidence_type_filter:
+            evidence_list = [e for e in evidence_list if e.evidence_type == evidence_type_filter]
         
-        return evidence_list
+        # Convert to response format
+        return [
+            EvidenceResponse(
+                id=evidence.id,
+                evidence_type=evidence.evidence_type,
+                metadata=evidence.metadata,
+                status=evidence.status,
+                storage_id=evidence.storage_id,
+                case_id=evidence.case_id,
+                chain_of_custody=evidence.chain_of_custody,
+                worm_locked=evidence.worm_locked,
+                processing_result=evidence.processing_result.to_dict() if evidence.processing_result else None,
+            )
+            for evidence in evidence_list
+        ]
         
     except Exception as e:
         # Log error and return 502 Bad Gateway
@@ -237,7 +231,8 @@ async def list_evidence(
 async def get_evidence(
     evidence_id: str,
     current_user: str = Depends(get_current_user),
-    mode_enforcer: ModeEnforcer = Depends()
+    mode_enforcer: ModeEnforcer = Depends(),
+    evidence_service: EvidenceService = Depends(get_evidence_service)
 ):
     """
     Get a specific evidence item by ID.
@@ -279,38 +274,25 @@ async def get_evidence(
         )
     
     try:
-        # Get HTTP client and evidence service URL
-        http_client = get_http_client()
-        evidence_url = get_service_url("evidence")
+        # Get evidence from service
+        evidence = await evidence_service.get_evidence(evidence_id)
+        if not evidence:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Evidence not found"
+            )
         
-        # Make HTTP call to evidence service
-        response = await http_client.get(
-            f"{evidence_url}/evidence/{evidence_id}",
-            headers={"X-User-ID": current_user}
+        return EvidenceResponse(
+            id=evidence.id,
+            evidence_type=evidence.evidence_type,
+            metadata=evidence.metadata,
+            status=evidence.status,
+            storage_id=evidence.storage_id,
+            case_id=evidence.case_id,
+            chain_of_custody=evidence.chain_of_custody,
+            worm_locked=evidence.worm_locked,
+            processing_result=evidence.processing_result.to_dict() if evidence.processing_result else None,
         )
-        
-        # Convert response to EvidenceResponse
-        evidence_response = EvidenceResponse(
-            id=response["evidence_id"],
-            evidence_type=EvidenceType.DOCUMENT,  # Default, should be determined from content_type
-            metadata=EvidenceMetadata(
-                filename=response["filename"],
-                content_type=response["content_type"],
-                size_bytes=response["size_bytes"],
-                checksum=response["checksum"],
-                uploaded_by=response.get("uploaded_by", "unknown"),
-                description="",
-                tags={}
-            ),
-            status=EvidenceStatus.UPLOADED,  # Map from status string
-            storage_id=response["evidence_id"],
-            case_id=response.get("case_id"),
-            chain_of_custody=[],
-            worm_locked=response.get("worm_locked", False),
-            processing_result=response.get("processing_results")
-        )
-        
-        return evidence_response
         
     except HTTPException:
         # Re-raise HTTP exceptions (like 404)
@@ -462,6 +444,7 @@ async def apply_worm_lock(
 
 
 @router.post("/{evidence_id}/commit", response_model=dict)
+@requires("evidence_manager")
 async def commit_evidence(
     evidence_id: str,
     current_user: str = Depends(get_current_user),

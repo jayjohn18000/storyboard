@@ -33,8 +33,8 @@ services:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: youruser
+      MINIO_ROOT_PASSWORD: yourstrongpassword
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -58,6 +58,8 @@ services:
   cerbos:
     image: ghcr.io/cerbos/cerbos:latest
     command: server --set=storage.driver=disk --set=storage.disk.directory=/policies --set=server.httpListenAddr=:3592
+    environment:
+      CERBOS_NO_TELEMETRY: "1"
     ports:
       - "3593:3593"
       - "3592:3592"
@@ -72,9 +74,11 @@ services:
       - POSTGRES_USER=legal_sim
       - POSTGRES_PWD=password
       - POSTGRES_SEEDS=postgres
-      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
+      - DYNAMIC_CONFIG_FILE_PATH=/etc/temporal/config/dynamicconfig/development.yaml
     ports:
       - "7233:7233"
+    volumes:
+      - ./temporal/config/dynamicconfig/development.yaml:/etc/temporal/config/dynamicconfig/development.yaml:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -85,12 +89,13 @@ services:
       context: .
       dockerfile: infrastructure/docker/services/api-gateway.Dockerfile
     ports:
-      - "8000:8000"
+      - "8002:8000"
     environment:
       - DATABASE_URL=postgresql://legal_sim:password@postgres:5432/legal_sim
       - REDIS_URL=redis://redis:6379/0
       - OPA_ENDPOINT=http://opa:8181
       - CERBOS_ENDPOINT=http://cerbos:3593
+      - POLICY_MODE=disabled
     depends_on:
       - postgres
       - redis
@@ -105,14 +110,14 @@ services:
       timeout: 10s
       retries: 3
 
-  evidence-processor:
+  evidence_processor:
     build:
       context: .
       dockerfile: infrastructure/docker/services/evidence-processor.Dockerfile
     environment:
       - MINIO_ENDPOINT=minio:9000
-      - MINIO_ACCESS_KEY=minioadmin
-      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_ACCESS_KEY=youruser
+      - MINIO_SECRET_KEY=yourstrongpassword
       - MINIO_BUCKET=legal-sim-evidence
       - REDIS_URL=redis://redis:6379/0
     depends_on:
@@ -145,6 +150,8 @@ services:
     build:
       context: .
       dockerfile: infrastructure/docker/services/timeline-compiler.Dockerfile
+    ports:
+      - "8003:8003"
     environment:
       - DATABASE_URL=postgresql://legal_sim:password@postgres:5432/legal_sim
     depends_on:
@@ -154,6 +161,48 @@ services:
       - ./services:/app/services
       - ./config:/app/config
       - timeline_cache:/app/cache
+
+  # AI Agent Services
+  temporal-worker:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/services/temporal-worker.Dockerfile
+    environment:
+      - TEMPORAL_HOST=temporal:7233
+      - TEMPORAL_NAMESPACE=legal-sim
+      - AI_AGENT_TASK_QUEUE=ai-agent-queue
+      - DATABASE_URL=postgresql://legal_sim:password@postgres:5432/legal_sim
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      temporal:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./services:/app/services
+      - ./agents:/app/agents
+      - ./config:/app/config
+    restart: unless-stopped
+
+  temporal-event-bridge:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/services/temporal-event-bridge.Dockerfile
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - TEMPORAL_HOST=temporal:7233
+      - TEMPORAL_NAMESPACE=legal-sim
+    depends_on:
+      temporal:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./services:/app/services
+      - ./config:/app/config
+    restart: unless-stopped
 
   # render-orchestrator: (commented out until service is created)
   #   build:

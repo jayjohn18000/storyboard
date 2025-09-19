@@ -65,15 +65,15 @@ export const storyboardsApi = createApi({
       transformResponse: (response: any[]) => {
         return response.map(storyboard => ({
           id: storyboard.id,
-          caseId: storyboard.metadata?.case_id || storyboard.case_id,
-          title: storyboard.metadata?.title || storyboard.title,
-          content: storyboard.scenes ? JSON.stringify(storyboard.scenes) : '',
+          caseId: storyboard.case_id,
+          title: storyboard.title,
+          content: storyboard.content || '',
           beats: [], // Will be parsed from content
-          isValid: storyboard.validation_result?.isValid || false,
+          isValid: storyboard.validation_result?.is_valid || false,
           validationErrors: storyboard.validation_result?.errors || [],
-          createdAt: storyboard.metadata?.created_at || storyboard.created_at,
+          createdAt: storyboard.created_at,
           updatedAt: storyboard.updated_at,
-          createdBy: storyboard.metadata?.created_by || 'Unknown',
+          createdBy: storyboard.created_by || 'Unknown',
         }));
       },
     }),

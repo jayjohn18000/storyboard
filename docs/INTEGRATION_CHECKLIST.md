@@ -63,28 +63,28 @@ This checklist tracks the integration phases for the Legal Simulation Platform. 
 
 ## Observability (OTel traces/metrics, structured logs)
 
-- [ ] Add OpenTelemetry instrumentation to all services
-- [ ] Configure trace export (stdout/OTLP)
-- [ ] Implement structured JSON logging
-- [ ] Add service name and correlation ID to logs
-- [ ] Add span attributes for case_id, evidence_id
-- [ ] Implement readiness endpoints (`/ready`)
-- [ ] Add database and Redis connectivity checks
-- [ ] Test distributed tracing across services
-- [ ] Add custom metrics for business events
+- [x] Add OpenTelemetry instrumentation to all services
+- [x] Configure trace export (stdout/OTLP)
+- [x] Implement structured JSON logging
+- [x] Add service name and correlation ID to logs
+- [x] Add span attributes for case_id, evidence_id
+- [x] Implement readiness endpoints (`/ready`)
+- [x] Add database and Redis connectivity checks
+- [x] Test distributed tracing across services
+- [x] Add custom metrics for business events
 
 ## E2E Tests (happy path: upload → process → storyboard → timeline → render)
 
-- [ ] Create E2E test framework (`tests/e2e/`)
-- [ ] Implement happy path test (`test_happy_path.py`)
-- [ ] Add Docker Compose integration for testing
-- [ ] Create polling helper for async operations
-- [ ] Test evidence upload → processing → storyboard creation
-- [ ] Test storyboard → timeline compilation
-- [ ] Test timeline → render orchestration
-- [ ] Verify database state at each step
-- [ ] Verify chain of custody and WORM locks
-- [ ] Add make target for E2E tests (`make e2e`)
+- [x] Create E2E test framework (`tests/e2e/`)
+- [x] Implement happy path test (`test_happy_path.py`)
+- [x] Add Docker Compose integration for testing
+- [x] Create polling helper for async operations
+- [x] Test evidence upload → processing → storyboard creation
+- [x] Test storyboard → timeline compilation
+- [x] Test timeline → render orchestration
+- [x] Verify database state at each step
+- [x] Verify chain of custody and WORM locks
+- [x] Add make target for E2E tests (`make e2e`)
 
 ## Additional Integration Tasks
 
