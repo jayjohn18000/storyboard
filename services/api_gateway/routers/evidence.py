@@ -513,7 +513,8 @@ async def delete_evidence(
 async def apply_worm_lock(
     evidence_id: str,
     current_user: str = Depends(get_current_user),
-    mode_enforcer: ModeEnforcer = Depends()
+    mode_enforcer: ModeEnforcer = Depends(),
+    db_session = Depends(get_db_session)
 ):
     """Apply WORM lock to evidence."""
     # Check permissions
@@ -523,20 +524,29 @@ async def apply_worm_lock(
             detail="Insufficient permissions to lock evidence"
         )
     
-    # TODO: Get evidence from database
-    # evidence = await evidence_service.get_evidence(evidence_id)
-    # if not evidence:
-    #     raise HTTPException(
-    #         status_code=status.HTTP_404_NOT_FOUND,
-    #         detail="Evidence not found"
-    #     )
-    
-    # Check if already locked
-    # if evidence.worm_locked:
-    #     raise HTTPException(
-    #         status_code=status.HTTP_400_BAD_REQUEST,
-    #         detail="Evidence is already WORM locked"
-    #     )
+    try:
+        # Get evidence from database
+        db_service = DatabaseService(db_session)
+        evidence = await db_service.get_evidence(evidence_id)
+        if not evidence:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Evidence not found"
+            )
+        
+        # Check if already locked
+        if evidence.worm_locked:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Evidence is already WORM locked"
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get evidence: {str(e)}"
+        )
     
     try:
         # Get HTTP client and evidence service URL

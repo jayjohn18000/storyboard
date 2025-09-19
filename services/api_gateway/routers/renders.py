@@ -5,13 +5,16 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from datetime import datetime
 
-from ...shared.models.render import RenderJob, RenderStatus, RenderQuality
+from ...shared.models.render import RenderJob, RenderStatus, RenderQuality, RenderProfile
 from ...shared.services.database_service import DatabaseService
 from ...shared.services.render_service import RenderService
 from ...shared.database import get_db_session
 from ...shared.policy.middleware import requires
 from ..middleware.auth import get_current_user
 from ..middleware.mode_enforcer import ModeEnforcer
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter()
@@ -83,7 +86,8 @@ class RenderUpdateRequest(BaseModel):
 async def create_render(
     request: RenderRequest,
     current_user: str = Depends(get_current_user),
-    mode_enforcer: ModeEnforcer = Depends()
+    mode_enforcer: ModeEnforcer = Depends(),
+    render_service: RenderService = Depends(get_render_service)
 ):
     """Create a new render job."""
     # Check permissions
@@ -174,7 +178,8 @@ async def list_renders(
     status_filter: Optional[RenderStatus] = None,
     case_id_filter: Optional[str] = None,
     current_user: str = Depends(get_current_user),
-    mode_enforcer: ModeEnforcer = Depends()
+    mode_enforcer: ModeEnforcer = Depends(),
+    render_service: RenderService = Depends(get_render_service)
 ):
     """List render jobs with optional filtering."""
     # Check permissions
@@ -184,21 +189,19 @@ async def list_renders(
             detail="Insufficient permissions to list renders"
         )
     
-    # TODO: Implement database query with filters
-    # renders = await render_service.list_renders(
-    #     skip=skip,
-    #     limit=limit,
-    #     status_filter=status_filter,
-    #     case_id_filter=case_id_filter,
-    #     user_id=current_user
-    # )
-    
-    # Mock response for now
-    renders = []
+    try:
+        # Get renders from database with filters
+        renders = await render_service.list_renders(
+            skip=skip,
+            limit=limit,
+            status_filter=status_filter.value if status_filter else None,
+            case_id_filter=case_id_filter,
+            user_id=current_user
+        )
     
     return [
         RenderResponse(
-            id=render.id,
+                id=str(render.id),
             timeline_id=render.timeline_id,
             storyboard_id=render.storyboard_id,
             case_id=render.case_id,
@@ -231,6 +234,11 @@ async def list_renders(
         )
         for render in renders
     ]
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list renders: {str(e)}"
+        )
 
 
 @router.get("/{render_id}", response_model=RenderResponse)
@@ -370,7 +378,8 @@ async def update_render(
     render_id: str,
     request: RenderUpdateRequest,
     current_user: str = Depends(get_current_user),
-    mode_enforcer: ModeEnforcer = Depends()
+    mode_enforcer: ModeEnforcer = Depends(),
+    render_service: RenderService = Depends(get_render_service)
 ):
     """Update a render job."""
     # Check permissions
@@ -380,31 +389,70 @@ async def update_render(
             detail="Insufficient permissions to edit render"
         )
     
-    # TODO: Get render from database
-    # render = await render_service.get_render(render_id)
-    # if not render:
-    #     raise HTTPException(
-    #         status_code=status.HTTP_404_NOT_FOUND,
-    #         detail="Render not found"
-    #     )
+    try:
+        # Get render from database
+        render = await render_service.get_render(render_id)
+        if not render:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Render not found"
+            )
     
     # Check if render can be modified
-    # if render.status in [RenderStatus.PROCESSING, RenderStatus.COMPLETED]:
-    #     raise HTTPException(
-    #         status_code=status.HTTP_400_BAD_REQUEST,
-    #         detail="Cannot modify render in current status"
-    #     )
-    
-    # TODO: Update render
-    # updated_render = await render_service.update_render(
-    #     render_id, 
-    #     request.dict(exclude_unset=True)
-    # )
-    
-    # Mock response for now
+        if render.status in [RenderStatus.PROCESSING, RenderStatus.COMPLETED]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot modify render in current status"
+            )
+        
+        # Update render
+        update_data = request.dict(exclude_unset=True)
+        updated_render = await render_service.update_render(render_id, **update_data)
+        
+        if not updated_render:
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
         detail="Render not found"
+            )
+        
+        return RenderResponse(
+            id=str(updated_render.id),
+            timeline_id=updated_render.timeline_id,
+            storyboard_id=updated_render.storyboard_id,
+            case_id=updated_render.case_id,
+            status=updated_render.status,
+            priority=updated_render.priority,
+            created_by=updated_render.created_by,
+            created_at=updated_render.created_at,
+            started_at=updated_render.started_at,
+            completed_at=updated_render.completed_at,
+            width=updated_render.width,
+            height=updated_render.height,
+            fps=updated_render.fps,
+            quality=updated_render.quality,
+            profile=updated_render.profile,
+            deterministic=updated_render.deterministic,
+            seed=updated_render.seed,
+            output_format=updated_render.output_format,
+            output_path=updated_render.output_path,
+            file_size_bytes=updated_render.file_size_bytes,
+            duration_seconds=updated_render.duration_seconds,
+            render_time_seconds=updated_render.render_time_seconds,
+            frames_rendered=updated_render.frames_rendered,
+            total_frames=updated_render.total_frames,
+            progress_percentage=updated_render.progress_percentage,
+            error_message=updated_render.error_message,
+            retry_count=updated_render.retry_count,
+            max_retries=updated_render.max_retries,
+            checksum=updated_render.checksum,
+            golden_frame_checksums=updated_render.golden_frame_checksums,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update render: {str(e)}"
     )
 
 
@@ -412,7 +460,8 @@ async def update_render(
 async def cancel_render(
     render_id: str,
     current_user: str = Depends(get_current_user),
-    mode_enforcer: ModeEnforcer = Depends()
+    mode_enforcer: ModeEnforcer = Depends(),
+    render_service: RenderService = Depends(get_render_service)
 ):
     """Cancel a render job."""
     # Check permissions
@@ -422,28 +471,46 @@ async def cancel_render(
             detail="Insufficient permissions to cancel render"
         )
     
-    # TODO: Get render from database
-    # render = await render_service.get_render(render_id)
-    # if not render:
-    #     raise HTTPException(
-    #         status_code=status.HTTP_404_NOT_FOUND,
-    #         detail="Render not found"
-    #     )
-    
-    # Check if render can be cancelled
-    # if render.status in [RenderStatus.COMPLETED, RenderStatus.FAILED, RenderStatus.CANCELLED]:
-    #     raise HTTPException(
-    #         status_code=status.HTTP_400_BAD_REQUEST,
-    #         detail="Cannot cancel render in current status"
-    #     )
-    
-    # TODO: Cancel render
-    # await render_service.cancel_render(render_id)
-    
-    # Mock response for now
+    try:
+        # Get render from database
+        render = await render_service.get_render(render_id)
+        if not render:
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
         detail="Render not found"
+            )
+        
+        # Check if render can be cancelled
+        if render.status in [RenderStatus.COMPLETED, RenderStatus.FAILED, RenderStatus.CANCELLED]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot cancel render in current status"
+            )
+        
+        # Cancel render
+        success = await render_service.cancel_render(render_id)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to cancel render"
+            )
+        
+        # Create audit log
+        db_service = DatabaseService(await get_db_session())
+        await db_service.create_audit_log(
+            user_id=current_user,
+            action="cancel_render",
+            resource_type="render",
+            resource_id=render_id,
+            details={"status": render.status.value}
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to cancel render: {str(e)}"
     )
 
 
@@ -451,7 +518,8 @@ async def cancel_render(
 async def get_render_status(
     render_id: str,
     current_user: str = Depends(get_current_user),
-    mode_enforcer: ModeEnforcer = Depends()
+    mode_enforcer: ModeEnforcer = Depends(),
+    render_service: RenderService = Depends(get_render_service)
 ):
     """Get render job status."""
     # Check permissions
@@ -461,35 +529,42 @@ async def get_render_status(
             detail="Insufficient permissions to view render status"
         )
     
-    # TODO: Get render from database
-    # render = await render_service.get_render(render_id)
-    # if not render:
-    #     raise HTTPException(
-    #         status_code=status.HTTP_404_NOT_FOUND,
-    #         detail="Render not found"
-    #     )
-    
-    # return {
-    #     "status": render.status.value,
-    #     "progress_percentage": render.progress_percentage,
-    #     "frames_rendered": render.frames_rendered,
-    #     "total_frames": render.total_frames,
-    #     "error_message": render.error_message,
-    #     "render_time_seconds": render.render_time_seconds,
-    # }
-    
-    # Mock response for now
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail="Render not found"
-    )
+    try:
+        # Get render from database
+        render = await render_service.get_render(render_id)
+        if not render:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Render not found"
+            )
+        
+        return {
+            "status": render.status.value,
+            "progress_percentage": render.progress_percentage,
+            "frames_rendered": render.frames_rendered,
+            "total_frames": render.total_frames,
+            "error_message": render.error_message,
+            "render_time_seconds": render.render_time_seconds,
+            "started_at": render.started_at.isoformat() if render.started_at else None,
+            "completed_at": render.completed_at.isoformat() if render.completed_at else None,
+            "retry_count": render.retry_count,
+            "max_retries": render.max_retries,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get render status: {str(e)}"
+        )
 
 
 @router.get("/{render_id}/download")
 async def download_render(
     render_id: str,
     current_user: str = Depends(get_current_user),
-    mode_enforcer: ModeEnforcer = Depends()
+    mode_enforcer: ModeEnforcer = Depends(),
+    render_service: RenderService = Depends(get_render_service)
 ):
     """Download rendered video."""
     # Check permissions
@@ -499,35 +574,59 @@ async def download_render(
             detail="Insufficient permissions to download render"
         )
     
-    # TODO: Get render from database
-    # render = await render_service.get_render(render_id)
-    # if not render:
-    #     raise HTTPException(
-    #         status_code=status.HTTP_404_NOT_FOUND,
-    #         detail="Render not found"
-    #     )
-    
-    # Check if render is completed
-    # if render.status != RenderStatus.COMPLETED:
-    #     raise HTTPException(
-    #         status_code=status.HTTP_400_BAD_REQUEST,
-    #         detail="Render is not completed"
-    #     )
-    
-    # TODO: Get file data from storage
-    # file_data = await render_service.get_render_file(render_id)
-    
-    # Mock response for now
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail="Render not found"
-    )
+    try:
+        # Get render from database
+        render = await render_service.get_render(render_id)
+        if not render:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Render not found"
+            )
+        
+        # Check if render is completed
+        if render.status != RenderStatus.COMPLETED:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Render is not completed"
+            )
+        
+        # Get file data from storage
+        file_data = await render_service.get_render_file(render_id)
+        
+        # Create audit log
+        db_service = DatabaseService(await get_db_session())
+        await db_service.create_audit_log(
+            user_id=current_user,
+            action="download_render",
+            resource_type="render",
+            resource_id=render_id,
+            details={"file_size": len(file_data)}
+        )
+        
+        # Return file response
+        from fastapi.responses import Response
+        return Response(
+            content=file_data,
+            media_type="video/mp4",
+            headers={
+                "Content-Disposition": f"attachment; filename=render_{render_id}.{render.output_format}",
+                "Content-Length": str(len(file_data)),
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to download render: {str(e)}"
+        )
 
 
 @router.get("/queue/stats", response_model=dict)
 async def get_queue_stats(
     current_user: str = Depends(get_current_user),
-    mode_enforcer: ModeEnforcer = Depends()
+    mode_enforcer: ModeEnforcer = Depends(),
+    render_service: RenderService = Depends(get_render_service)
 ):
     """Get render queue statistics."""
     # Check permissions
@@ -537,15 +636,23 @@ async def get_queue_stats(
             detail="Insufficient permissions to view queue stats"
         )
     
-    # TODO: Get queue stats
-    # stats = await render_service.get_queue_stats()
-    
-    # Mock response for now
-    return {
-        "total_jobs": 0,
-        "queued": 0,
-        "processing": 0,
-        "completed": 0,
-        "failed": 0,
-        "cancelled": 0,
-    }
+    try:
+        # Get queue stats from render service
+        stats = await render_service.get_queue_stats()
+        
+        return {
+            "total_jobs": stats.get("total_jobs", 0),
+            "queued": stats.get("queued", 0),
+            "processing": stats.get("processing", 0),
+            "completed": stats.get("completed", 0),
+            "failed": stats.get("failed", 0),
+            "cancelled": stats.get("cancelled", 0),
+            "average_render_time": stats.get("average_render_time", 0),
+            "queue_position": stats.get("queue_position", 0),
+            "estimated_wait_time": stats.get("estimated_wait_time", 0),
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get queue stats: {str(e)}"
+        )

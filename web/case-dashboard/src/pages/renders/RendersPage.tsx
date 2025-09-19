@@ -7,6 +7,7 @@ import {
   useDownloadRenderQuery,
   RenderJob 
 } from '../../store/api/rendersApi';
+import { useGetCasesQuery } from '../../store/api/casesApi';
 
 export const RendersPage: React.FC = () => {
   const [selectedCaseId, setSelectedCaseId] = useState<string | undefined>();
@@ -15,6 +16,9 @@ export const RendersPage: React.FC = () => {
   const { data: renderJobs = [], isLoading, error } = useGetRendersQuery({ 
     caseId: selectedCaseId 
   });
+  
+  // Fetch cases for filter dropdown
+  const { data: cases = [] } = useGetCasesQuery();
   
   // Mutations
   const [cancelRender] = useCancelRenderMutation();
@@ -103,7 +107,11 @@ export const RendersPage: React.FC = () => {
             aria-label="Filter renders by case"
           >
             <option value="">All Cases</option>
-            {/* TODO: Add case options from cases API */}
+            {cases.map((caseItem) => (
+              <option key={caseItem.id} value={caseItem.id}>
+                {caseItem.title} ({caseItem.id.slice(0, 8)}...)
+              </option>
+            ))}
           </select>
         </div>
       </div>
